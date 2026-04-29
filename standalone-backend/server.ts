@@ -31,7 +31,10 @@ app.use((req, res, next) => {
 });
 
 app.use(cors({
-  origin: ['https://www.mumantij-ai.com', 'https://mumantij-ai.com', 'https://ais-dev-4qtw3fwjaavwes4ypzxbou-263002893643.europe-west3.run.app', 'http://localhost:3000', '*'],
+  origin: function (origin, callback) {
+    // Allow all origins
+    callback(null, true);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control']
