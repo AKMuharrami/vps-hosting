@@ -189,52 +189,47 @@ export const CaptionsComposition = ({
                         }}
                         dir="rtl"
                     >
-                        {styleOptions?.animationMode === 'word' || styleOptions?.animationMode === 'highlight' ? (
-                            <div
-                                style={{
-                                    display: 'flex',
-                                    flexWrap: 'wrap',
-                                    flexShrink: 0,
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                    paddingTop: '0.25rem',
-                                    paddingBottom: '0.25rem',
-                                    width: '100%',
-                                    gap: '1.25em 0.5em'
-                                }}
-                            >
-                                {activeCaption.text.split(' ').map((word: string, i: number, arr: string[]) => {
-                                    const duration = activeCaption.end - activeCaption.start;
-                                    const scaledDuration = duration / (styleOptions?.wordSpeedMultiplier ?? 1);
-                                    const wordStartTime = activeCaption.start + (i / arr.length) * scaledDuration;
-                                    const isHighlighted = currentTime >= wordStartTime && currentTime <= (activeCaption.start + ((i + 1) / arr.length) * scaledDuration);
-                                    
-                                    const wordHighlightColor = styleOptions?.wordHighlightColor ?? '#3e81f6';
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                flexShrink: 0,
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                paddingTop: '0.25rem',
+                                paddingBottom: '0.25rem',
+                                width: '100%',
+                                gap: '1.5625em 0.625em'
+                            }}
+                        >
+                            {activeCaption.text.split(' ').map((word: string, i: number, arr: string[]) => {
+                                const isWordAnim = styleOptions?.animationMode === 'word' || styleOptions?.animationMode === 'highlight';
+                                const duration = activeCaption.end - activeCaption.start;
+                                const scaledDuration = duration / (styleOptions?.wordSpeedMultiplier ?? 1);
+                                const wordStartTime = activeCaption.start + (i / arr.length) * scaledDuration;
+                                const isHighlighted = isWordAnim && (currentTime >= wordStartTime && currentTime <= (activeCaption.start + ((i + 1) / arr.length) * scaledDuration));
+                                
+                                const wordHighlightColor = styleOptions?.wordHighlightColor ?? '#3e81f6';
 
-                                    const wordScale = isHighlighted ? 1.15 : 1;
+                                const wordScale = isHighlighted ? 1.15 : 1;
 
-                                    return (
-                                        <span
-                                            key={i}
-                                            className="inline-block"
-                                            style={{
-                                                fontWeight: styleOptions?.fontWeight || 'normal',
-                                                color: isHighlighted ? wordHighlightColor : undefined,
-                                                transform: `scale(${wordScale})`,
-                                                transformOrigin: 'center',
-                                                transition: 'color 0.1s'
-                                            }}
-                                        >
-                                            {word}
-                                        </span>
-                                    );
-                                })}
-                            </div>
-                        ) : (
-                            <div style={{ width: '100%', textAlign: 'center' }}>
-                                {activeCaption.text}
-                            </div>
-                        )}
+                                return (
+                                    <span
+                                        key={i}
+                                        className="inline-block"
+                                        style={{
+                                            fontWeight: styleOptions?.fontWeight || 'normal',
+                                            color: isHighlighted ? wordHighlightColor : undefined,
+                                            transform: `scale(${wordScale})`,
+                                            transformOrigin: 'center',
+                                            transition: 'color 0.1s'
+                                        }}
+                                    >
+                                        {word}
+                                    </span>
+                                );
+                            })}
+                        </div>
                     </span>
                 </div>
             )}
