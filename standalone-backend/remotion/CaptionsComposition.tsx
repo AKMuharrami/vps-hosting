@@ -48,24 +48,9 @@ export const CaptionsComposition = ({
             return;
         }
 
-        let fontUrl = '';
         if (displayFont.includes('Janna')) {
-            fontUrl = 'https://hjrm8lbtnby37npy.public.blob.vercel-storage.com/Janna%20LT%20Regular.ttf';
-        } else if (displayFont.includes('Tajawal')) {
-            fontUrl = 'https://fonts.gstatic.com/s/tajawal/v9/I8aup314nnSgg3mKVG07zYVvPDp7Lw.woff2';
-        } else if (displayFont.includes('Cairo')) {
-            fontUrl = 'https://fonts.gstatic.com/s/cairo/v28/SLXVc1_SR38EWH6XGA5bW_B8e8uGj99y2g.woff2';
-        } else if (displayFont.includes('Amiri')) {
-            fontUrl = 'https://fonts.gstatic.com/s/amiri/v26/J7afp99WK5S-44kI9Yk.woff2';
-        } else if (displayFont.includes('IBM Plex Sans Arabic')) {
-            fontUrl = 'https://fonts.gstatic.com/s/ibmplexsansarabic/v15/Yq6R-DObY6Zc_5V_p_4L9F0u5hS6i-6T8u-rS5T6.woff2';
-        } else if (displayFont.includes('Roboto')) {
-            fontUrl = 'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.woff2';
-        }
-
-        if (fontUrl) {
-            const font = new FontFace(displayFont, `url(${fontUrl})`, {
-                weight: styleOptions.fontWeight || 'normal'
+            const font = new FontFace(displayFont, `url(https://hjrm8lbtnby37npy.public.blob.vercel-storage.com/Janna%20LT%20Regular.ttf)`, {
+                weight: 'normal'
             });
             font.load().then(() => {
                 document.fonts.add(font);
@@ -77,10 +62,26 @@ export const CaptionsComposition = ({
                 continueRender(handle);
             });
         } else {
-             setFontLoaded(true);
-             continueRender(handle);
+            const familyName = displayFont.replace(/ /g, '+');
+            const weight = styleOptions.fontWeight || '400';
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = `https://fonts.googleapis.com/css2?family=${familyName}:wght@${weight}&display=swap`;
+            
+            link.onload = () => {
+                document.fonts.ready.then(() => {
+                    setFontLoaded(true);
+                    continueRender(handle);
+                });
+            };
+            link.onerror = () => {
+                console.error('Failed to load Google Font:', displayFont);
+                setFontLoaded(true);
+                continueRender(handle);
+            };
+            document.head.appendChild(link);
         }
-    }, [displayFont, handle]);
+    }, [displayFont, handle, styleOptions.fontWeight]);
 
     // Apply inline style logic from App.tsx
     const shadowOpacity = styleOptions?.shadowOpacity ?? 80;
@@ -199,7 +200,7 @@ export const CaptionsComposition = ({
                                     paddingTop: '0.25rem',
                                     paddingBottom: '0.25rem',
                                     width: '100%',
-                                    gap: '0.55em 0.22em'
+                                    gap: '0.85em 0.35em'
                                 }}
                             >
                                 {activeCaption.text.split(' ').map((word: string, i: number, arr: string[]) => {
@@ -217,6 +218,7 @@ export const CaptionsComposition = ({
                                             key={i}
                                             className="inline-block"
                                             style={{
+                                                fontWeight: styleOptions?.fontWeight || 'normal',
                                                 color: isHighlighted ? wordHighlightColor : undefined,
                                                 transform: `scale(${wordScale})`,
                                                 transformOrigin: 'center',
