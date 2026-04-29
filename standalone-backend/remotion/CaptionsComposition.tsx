@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { AbsoluteFill, useCurrentFrame, useVideoConfig, Video, delayRender, continueRender } from 'remotion';
+import { AbsoluteFill, useCurrentFrame, useVideoConfig, Video, delayRender, continueRender, spring, interpolate } from 'remotion';
 
 // Simple implementation simulating the App.tsx styles
 export const CaptionsComposition = ({
@@ -107,6 +107,40 @@ export const CaptionsComposition = ({
         ? `${shadowSize}px ${shadowSize}px 0px ${shadowColorStr}`
         : 'none';
 
+    // Animation Block
+    let blockScale = 1;
+    let blockTranslateY = 0;
+    
+    // Fallback if not specified
+    const animType = styleOptions?.animation || 'none';
+
+    if (activeCaption) {
+        const startFrame = Math.round(activeCaption.start * fps);
+        const endFrame = Math.round(activeCaption.end * fps);
+        // Only run animation on entrance
+        const relativeFrame = frame - startFrame;
+        
+        if (animType === 'pop') {
+            blockScale = spring({
+                fps,
+                frame: relativeFrame,
+                config: { damping: 12, stiffness: 200 },
+                from: 0.8,
+                to: 1
+            });
+        } else if (animType === 'slideUp') {
+            const yOffset = 20 * scaleRatio;
+            blockTranslateY = interpolate(
+                spring({ fps, frame: relativeFrame, config: { damping: 15, stiffness: 200 } }),
+                [0, 1],
+                [yOffset, 0]
+            );
+        }
+    }
+    
+    const posX = styleOptions?.captionPosition?.x ?? 0;
+    const posY = styleOptions?.captionPosition?.y ?? 0;
+
     return (
         <AbsoluteFill style={{ backgroundColor: 'black' }}>
             <Video 
@@ -150,7 +184,7 @@ export const CaptionsComposition = ({
                             paintOrder: 'stroke fill',
                             textShadow: textShadowValue,
                             direction: 'rtl', // specific to Arabic
-                            transform: `translate(${styleOptions?.captionPosition?.x ?? 0}px, ${styleOptions?.captionPosition?.y ?? 0}px)`
+                            transform: `translate(${posX}px, calc(${posY}px + ${blockTranslateY}px)) scale(${blockScale})`
                         }}
                         dir="rtl"
                     >
@@ -165,7 +199,7 @@ export const CaptionsComposition = ({
                                     paddingTop: '0.25rem',
                                     paddingBottom: '0.25rem',
                                     width: '100%',
-                                    gap: '0.25em 0.15em'
+                                    gap: '0.5em 0.2em'
                                 }}
                             >
                                 {activeCaption.text.split(' ').map((word: string, i: number, arr: string[]) => {
