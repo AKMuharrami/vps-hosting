@@ -26,5 +26,13 @@ sudo apt-get install -y nginx
 echo "🔒 Installing Certbot..."
 sudo apt-get install -y certbot python3-certbot-nginx
 
+# Configure Firewall
+echo "🛡️ Configuring Firewall..."
+sudo ufw allow OpenSSH
+sudo ufw allow 80
+sudo ufw allow 443
+sudo ufw allow 3000
+sudo ufw --force enable
+
 echo "✅ System tools installed!"
 echo "⚠️ Please LOG OUT and LOG BACK IN to enable Docker permissions for your user."

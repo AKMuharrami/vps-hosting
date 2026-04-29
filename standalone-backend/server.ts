@@ -22,7 +22,7 @@ dotenv.config();
 
 // Initialize backend app
 const app = express();
-const PORT = process.env.PORT || 3001; // Can run on any port e.g., Railway gives you PORT
+const PORT = process.env.PORT || 3000; // Match Docker Compose mapping
 
 app.use(cors({
   origin: function (origin, callback) {
@@ -246,7 +246,6 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                     codec: 'h264',
                     outputLocation: outputPath,
                     inputProps,
-                    offthreadVideoCacheSizeInBytes: 0,
                     chromiumOptions: {
                        gl: 'angle',
                        args: [

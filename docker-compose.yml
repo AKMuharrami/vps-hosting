@@ -7,7 +7,7 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      # Add your environment variables here
+      - PORT=3000
     restart: always
 
   # If you want to serve the frontend via Docker as well:
