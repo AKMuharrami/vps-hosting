@@ -1,0 +1,18 @@
+services:
+  backend:
+    build: 
+      context: ./standalone-backend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      # Add your environment variables here
+    restart: always
+
+  # If you want to serve the frontend via Docker as well:
+  # frontend:
+  #   build: .
+  #   ports:
+  #     - "8080:80"
+  #   restart: always
