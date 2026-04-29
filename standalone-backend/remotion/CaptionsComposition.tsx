@@ -179,7 +179,7 @@ export const CaptionsComposition = ({
                                     return (
                                         <span
                                             key={i}
-                                            className="inline-block px-1"
+                                            className="inline-block"
                                             style={{
                                                 color: isHighlighted ? wordHighlightColor : undefined,
                                                 transition: 'color 0.1s'
