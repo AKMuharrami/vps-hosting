@@ -200,7 +200,7 @@ export const CaptionsComposition = ({
                                     paddingTop: '0.25rem',
                                     paddingBottom: '0.25rem',
                                     width: '100%',
-                                    gap: '0.85em 0.35em'
+                                    gap: '1.25em 0.5em'
                                 }}
                             >
                                 {activeCaption.text.split(' ').map((word: string, i: number, arr: string[]) => {
