@@ -262,13 +262,17 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                     codec: 'h264',
                     outputLocation: outputPath,
                     inputProps,
+                    concurrency: os.cpus().length || null,
+                    crf: 28, // higher crf = much faster, 28 is visually fine for social media
+                    videoBitrate: '6000k', // prevent huge files on default
                     chromiumOptions: {
-                       gl: 'angle',
+                       gl: 'swiftshader', // angle may fail or hang if there's no GPU at all on the VPS. swiftshader is robust CPU renderer.
                        args: [
                            "--no-sandbox", 
                            "--disable-setuid-sandbox",
                            "--allow-file-access-from-files",
-                           "--disable-web-security"
+                           "--disable-web-security",
+                           "--disable-gpu"
                        ]
                     }
                 });
