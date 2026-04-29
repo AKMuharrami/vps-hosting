@@ -314,7 +314,7 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
             '-pix_fmt', 'yuv420p',
             '-crf', '24',
             '-c:a', 'copy',
-            '-threads', '2',
+            '-threads', '0',
             '-movflags', '+faststart',
             outputPath
             ];
