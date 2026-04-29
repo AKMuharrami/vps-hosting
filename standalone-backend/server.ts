@@ -26,11 +26,8 @@ const PORT = process.env.PORT || 3000; // Match Docker Compose mapping
 
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || ['https://www.mumantij-ai.com', 'https://mumantij-ai.com', 'http://localhost:3000', 'http://localhost:5173', 'https://captbackend.up.railway.app'].includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
+    // Allow any origin during development/migration to VPS
+    callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -107,6 +104,19 @@ async function ensureFont(fontName: string): Promise<string | null> {
 const exportJobs = new Map<string, { status: string; progress?: number; downloadUrl?: string; error?: string }>();
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+
+app.get("/", (_req, res) => {
+  res.send(`
+    <html>
+      <head><title>Mumantij AI Backend</title></head>
+      <body>
+        <h1>Mumantij AI Backend is Running</h1>
+        <p>Status: Healthy</p>
+        <p>Endpoint: <code>/api/export-video</code></p>
+      </body>
+    </html>
+  `);
+});
 
 app.get("/api/download-export/:fileId", (req, res) => {
   const { fileId } = req.params;
