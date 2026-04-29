@@ -256,14 +256,17 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                     inputProps
                 });
 
+                const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
                 await renderMedia({
                     composition,
                     serveUrl: bundleLocation,
                     codec: 'h264',
-                    outputLocation: outputPath,
+                    outputLocation: tempVideoPath,
                     inputProps,
                     concurrency: os.cpus().length || null,
                     crf: 28, // higher crf = much faster, 28 is visually fine for social media
+                    imageFormat: 'jpeg',
+                    jpegQuality: 80,
                     chromiumOptions: {
                        gl: 'swiftshader', // angle may fail or hang if there's no GPU at all on the VPS. swiftshader is robust CPU renderer.
                        args: [
@@ -275,7 +278,30 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                        ]
                     }
                 });
-                console.log("[Export] Remotion rendering completed.");
+                console.log("[Export] Remotion rendering completed (video only). Muxing audio...");
+                
+                await new Promise((resolve, reject) => {
+                    ffmpeg()
+                        .input(tempVideoPath)
+                        .input(videoSource)
+                        .outputOptions([
+                            '-c:v copy',
+                            '-c:a aac',
+                            '-map 0:v:0',
+                            '-map 1:a:0?',
+                            '-shortest'
+                        ])
+                        .save(outputPath)
+                        .on('end', () => {
+                            try { fs.unlinkSync(tempVideoPath); } catch(e) {}
+                            resolve(null);
+                        })
+                        .on('error', (err) => {
+                            console.error("[Export] Muxing error, falling back to video only:", err);
+                            try { fs.renameSync(tempVideoPath, outputPath); } catch(e) {}
+                            resolve(null);
+                        });
+                });
             } catch (renderErr: any) {
                 console.error("[Export] Remotion renderMedia error:", renderErr);
                 throw new Error(`Remotion Engine Error: ${renderErr.message || renderErr}`);

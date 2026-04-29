@@ -207,11 +207,33 @@ export const CaptionsComposition = ({
                                 const duration = activeCaption.end - activeCaption.start;
                                 const scaledDuration = duration / (styleOptions?.wordSpeedMultiplier ?? 1);
                                 const wordStartTime = activeCaption.start + (i / arr.length) * scaledDuration;
-                                const isHighlighted = isWordAnim && (currentTime >= wordStartTime && currentTime <= (activeCaption.start + ((i + 1) / arr.length) * scaledDuration));
+                                const wordEndTime = activeCaption.start + ((i + 1) / arr.length) * scaledDuration;
+                                
+                                const wordStartFrame = Math.round(wordStartTime * fps);
+                                const wordEndFrame = Math.round(wordEndTime * fps);
+                                
+                                const isHighlighted = isWordAnim && (currentTime >= wordStartTime && currentTime <= wordEndTime);
                                 
                                 const wordHighlightColor = styleOptions?.wordHighlightColor ?? '#3e81f6';
 
-                                const wordScale = isHighlighted ? 1.15 : 1;
+                                let wordScale = 1;
+                                if (isWordAnim) {
+                                    if (frame >= wordStartFrame && frame < wordEndFrame) {
+                                        wordScale = interpolate(
+                                            frame - wordStartFrame,
+                                            [0, 3], // small 3 frame pop
+                                            [1, 1.15],
+                                            { extrapolateRight: 'clamp' }
+                                        );
+                                    } else if (frame >= wordEndFrame) {
+                                        wordScale = interpolate(
+                                            frame - wordEndFrame,
+                                            [0, 3], // 3 frame contract
+                                            [1.15, 1],
+                                            { extrapolateRight: 'clamp' }
+                                        );
+                                    }
+                                }
 
                                 return (
                                     <span
@@ -221,8 +243,7 @@ export const CaptionsComposition = ({
                                             fontWeight: styleOptions?.fontWeight || 'normal',
                                             color: isHighlighted ? wordHighlightColor : undefined,
                                             transform: `scale(${wordScale})`,
-                                            transformOrigin: 'center',
-                                            transition: 'color 0.1s'
+                                            transformOrigin: 'center'
                                         }}
                                     >
                                         {word}
