@@ -24,11 +24,14 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000; // Match Docker Compose mapping
 
+// Debug logging for every request
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url} - IP: ${req.ip}`);
+  next();
+});
+
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow any origin during development/migration to VPS
-    callback(null, true);
-  },
+  origin: ['https://www.mumantij-ai.com', 'https://mumantij-ai.com', 'https://ais-dev-4qtw3fwjaavwes4ypzxbou-263002893643.europe-west3.run.app', 'http://localhost:3000', '*'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control']
