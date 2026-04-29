@@ -5,18 +5,29 @@ import { AbsoluteFill, useCurrentFrame, useVideoConfig, Video, delayRender, cont
 export const CaptionsComposition = ({
     videoUrl,
     captions,
-    styleOptions
+    styleOptions,
+    videoHeight: propVideoHeight
 }: any) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
     const currentTime = frame / fps;
 
-    console.log('[Remotion] Rendering frame', frame, 'videoUrl:', videoUrl);
+    useEffect(() => {
+        console.log('[CaptionsComposition] Render Frame:', { 
+            frame, 
+            fps, 
+            currentTime, 
+            captionsLength: Array.isArray(captions) ? captions.length : 'not an array',
+            styleOptionsDefined: !!styleOptions
+        });
+    }, [frame, fps, currentTime, captions, styleOptions]);
 
     const [handle] = useState(() => delayRender('Loading fonts...'));
     const [fontLoaded, setFontLoaded] = useState(false);
 
-    const activeCaption = captions.find((c: any) => currentTime >= c.start && currentTime <= c.end);
+    const activeCaption = Array.isArray(captions) 
+        ? captions.find((c: any) => currentTime >= c.start && currentTime <= c.end)
+        : null;
 
     const FONT_MAP: Record<string, string> = {
         'font-sans': 'Janna LT',
@@ -76,9 +87,19 @@ export const CaptionsComposition = ({
     const bgOpacity = styleOptions?.bgOpacity ?? 0;
     const textOpacity = styleOptions?.textOpacity ?? 100;
     
+    // Scale from preview container pixel space to source video pixel space
+    const previewHeight = styleOptions?.previewHeight || 1;
+    const videoHeight = propVideoHeight || styleOptions?.videoHeight || 1920;
+    const scaleRatio = videoHeight / previewHeight;
+    const scaledFontSize = Math.floor((styleOptions?.fontSize ?? 40) * scaleRatio);
+    const scaledPaddingY = Math.floor(8 * scaleRatio);
+    const scaledPaddingX = Math.floor(10 * scaleRatio);
+    const scaledStroke = Math.floor((styleOptions?.strokeSize ?? 1) * scaleRatio);
+    const scaledShadow = Math.floor((styleOptions?.shadowSize ?? 2) * scaleRatio);
+    
     // Convert hex+opacity down if we want, or just rely on CSS
     const hasShadow = styleOptions?.hasShadow;
-    const shadowSize = styleOptions?.shadowSize ?? 2;
+    const shadowSize = scaledShadow;
     const shadowColorHex = styleOptions?.shadowColor || '#000000';
     const shadowColorStr = `${shadowColorHex}${Math.floor(shadowOpacity / 100 * 255).toString(16).padStart(2, '0')}`;
 
@@ -110,21 +131,21 @@ export const CaptionsComposition = ({
                         className="shadow-xl inline-block text-center px-4"
                         style={{
                             fontFamily: displayFont,
-                            fontSize: `${styleOptions?.fontSize ?? 40}px`,
+                            fontSize: `${scaledFontSize}px`,
                             maxWidth: `${styleOptions?.containerWidth ?? 80}%`,
                             color: styleOptions?.textColor + Math.floor(textOpacity / 100 * 255).toString(16).padStart(2, '0'),
                             backgroundColor: styleOptions?.hasBackground 
                                 ? `${styleOptions?.bgColor}${Math.floor(bgOpacity / 100 * 255).toString(16).padStart(2, '0')}` 
                                 : 'transparent',
                             borderRadius: '0px',
-                            padding: '8px 10px',
+                            padding: `${scaledPaddingY}px ${scaledPaddingX}px`,
                             wordBreak: 'break-word',
                             whiteSpace: 'pre-wrap',
                             borderColor: styleOptions?.hasBackground ? 'rgba(255,255,255,0.1)' : 'transparent',
                             lineHeight: '1.2',
                             fontWeight: styleOptions?.fontWeight,
                             WebkitTextStroke: styleOptions?.hasStroke 
-                                ? `${styleOptions?.strokeSize}px ${styleOptions?.strokeColor}` 
+                                ? `${scaledStroke}px ${styleOptions?.strokeColor}` 
                                 : 'none',
                             paintOrder: 'stroke fill',
                             textShadow: textShadowValue,
