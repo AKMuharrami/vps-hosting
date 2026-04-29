@@ -199,7 +199,7 @@ export const CaptionsComposition = ({
                                     paddingTop: '0.25rem',
                                     paddingBottom: '0.25rem',
                                     width: '100%',
-                                    gap: '0.5em 0.2em'
+                                    gap: '0.55em 0.22em'
                                 }}
                             >
                                 {activeCaption.text.split(' ').map((word: string, i: number, arr: string[]) => {
@@ -210,12 +210,16 @@ export const CaptionsComposition = ({
                                     
                                     const wordHighlightColor = styleOptions?.wordHighlightColor ?? '#3e81f6';
 
+                                    const wordScale = isHighlighted ? 1.15 : 1;
+
                                     return (
                                         <span
                                             key={i}
                                             className="inline-block"
                                             style={{
                                                 color: isHighlighted ? wordHighlightColor : undefined,
+                                                transform: `scale(${wordScale})`,
+                                                transformOrigin: 'center',
                                                 transition: 'color 0.1s'
                                             }}
                                         >
