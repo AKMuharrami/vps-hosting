@@ -9,7 +9,7 @@ export const CaptionsComposition = ({
     videoHeight: propVideoHeight
 }: any) => {
     const frame = useCurrentFrame();
-    const { fps, width: configWidth, height: configHeight } = useVideoConfig();
+    const { fps } = useVideoConfig();
     const currentTime = frame / fps;
 
     useEffect(() => {
@@ -91,11 +91,11 @@ export const CaptionsComposition = ({
     // Scale from preview container pixel space to source video pixel space
     const previewHeight = styleOptions?.previewHeight || 1;
     const videoHeight = propVideoHeight || styleOptions?.videoHeight || 1920;
-    const videoWidth = configWidth || styleOptions?.videoWidth || 1080;
-    const scaleRatio = videoHeight / previewHeight; // For padding and strokes only
+    const scaleRatio = videoHeight / previewHeight;
+    const scaledFontSize = Math.floor((styleOptions?.fontSize ?? 40) * scaleRatio);
+    
     
     // font size is now provided as a percentage of video width (cqi)
-    const scaledFontSize = Math.floor(((styleOptions?.fontSize ?? 8) / 100) * videoWidth);
     const scaledPaddingY = Math.floor(8 * scaleRatio);
     const scaledPaddingX = Math.floor(10 * scaleRatio);
     const scaledStroke = Math.floor((styleOptions?.strokeSize ?? 1) * scaleRatio);
@@ -141,10 +141,9 @@ export const CaptionsComposition = ({
             );
         }
     }
-    
+    const posX = styleOptions?.captionPosition?.x ?? 0;
+    const posY = styleOptions?.captionPosition?.y ?? 0;
     // posX and posY are from the preview space, so they must be scaled up to video space
-    const posX = (styleOptions?.captionPosition?.x ?? 0) * scaleRatio;
-    const posY = (styleOptions?.captionPosition?.y ?? 0) * scaleRatio;
 
     return (
         <AbsoluteFill style={{ backgroundColor: 'black' }}>
