@@ -256,8 +256,10 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                     inputProps
                 });
 
-                // Override the default duration with the dynamic duration from the video
+                // Override the default duration and dimensions with the dynamic ones from the video
                 composition.durationInFrames = Number(durationInFrames);
+                composition.width = Number(targetW);
+                composition.height = Number(targetH);
 
                 const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
                 await renderMedia({
@@ -279,7 +281,7 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                            "--disable-web-security",
                            "--disable-gpu"
                        ]
-                    }
+                    } as any
                 });
                 console.log("[Export] Remotion rendering completed (video only). Muxing audio...");
                 
