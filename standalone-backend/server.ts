@@ -256,6 +256,9 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                     inputProps
                 });
 
+                // Override the default duration with the dynamic duration from the video
+                composition.durationInFrames = Number(durationInFrames);
+
                 const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
                 await renderMedia({
                     composition,
