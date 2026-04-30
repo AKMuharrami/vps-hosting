@@ -224,7 +224,7 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
             
             const bundleLocation = await bundle({
-                entryPoint: path.join(__dirname, 'remotion', 'index.ts')
+                entryPoint: path.join(__dirname, 'remotion', 'index.tsx')
             });
 
             const videoBasename = path.basename(videoSource);
