@@ -49,12 +49,61 @@ app.use("/temp", (req, res, next) => {
 }, express.static(os.tmpdir()));
 
 // Set the native ffmpeg binary path for fluent-ffmpeg
-let validFfmpegPath = ffmpegStatic;
+const useNvenc = process.env.USE_NVENC === 'true' || process.env.USE_NVENC === '1';
+let validFfmpegPath = process.env.FFMPEG_PATH || (useNvenc ? 'ffmpeg' : ffmpegStatic);
 if (!validFfmpegPath) {
   console.warn("ffmpegStatic returned null, fallback via import not trivial");
+  validFfmpegPath = 'ffmpeg';
 }
 ffmpeg.setFfmpegPath(validFfmpegPath as string);
-console.log(`[FFmpeg] Using native binary at: ${validFfmpegPath}`);
+console.log(`[FFmpeg] Using native binary at: ${validFfmpegPath} | NVENC Enabled: ${useNvenc}`);
+
+// === QUEUE MANAGEMENT ===
+// With a strong rented GPU (e.g. RTX 3090, 4090), you can safely process multiple HD videos.
+const MAX_CONCURRENT_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS || '3', 10);
+let activeJobsCount = 0;
+
+interface JobTask {
+  id: string;
+  run: () => Promise<void>;
+}
+const jobQueue: JobTask[] = [];
+
+function processNextJob() {
+  if (activeJobsCount >= MAX_CONCURRENT_JOBS || jobQueue.length === 0) return;
+  
+  activeJobsCount++;
+  const nextTask = jobQueue.shift()!;
+  console.log(`[Queue] Starting job ${nextTask.id} | Active: ${activeJobsCount}/${MAX_CONCURRENT_JOBS} | Queued: ${jobQueue.length}`);
+  
+  const jobData = exportJobs.get(nextTask.id);
+  if (jobData) {
+    jobData.status = 'processing';
+    delete jobData.position;
+  }
+
+  nextTask.run().finally(() => {
+    activeJobsCount--;
+    console.log(`[Queue] Finished job ${nextTask.id} | Active: ${activeJobsCount}/${MAX_CONCURRENT_JOBS} | Queued: ${jobQueue.length}`);
+    
+    // Update queue position for remaining jobs
+    jobQueue.forEach((job, index) => {
+       const data = exportJobs.get(job.id);
+       if (data && data.status === 'queued') {
+          data.position = index + 1;
+       }
+    });
+    processNextJob();
+  });
+}
+
+function enqueueJob(id: string, run: () => Promise<void>) {
+  const position = jobQueue.length + 1;
+  exportJobs.set(id, { status: 'queued', position });
+  jobQueue.push({ id, run });
+  console.log(`[Queue] Enqueued job ${id} at position ${position}`);
+  processNextJob();
+}
 
 // Configure Multer for processing incoming video uploads directly to disk temporary storage
 const uploadDir = path.join(os.tmpdir(), 'uploads');
@@ -107,7 +156,7 @@ async function ensureFont(fontName: string): Promise<string | null> {
   return fontsDir;
 }
 
-const exportJobs = new Map<string, { status: string; progress?: number; downloadUrl?: string; error?: string }>();
+const exportJobs = new Map<string, { status: string; progress?: number; downloadUrl?: string; error?: string; position?: number }>();
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
 
@@ -160,10 +209,10 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
   const sessionId = uuidv4().substring(0, 8);
   let videoSource = uploadedFilePath || videoUrl;
   
-  exportJobs.set(sessionId, { status: 'processing' });
-  res.json({ jobId: sessionId });
+  const position = jobQueue.length + 1;
+  res.json({ jobId: sessionId, status: 'queued', position });
 
-  (async () => {
+  const jobRunner = async () => {
     let srtFileName: string | undefined;
     let outputPath: string | undefined;
     let downloadedVideoPath: string | undefined;
@@ -224,7 +273,7 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
             
             const bundleLocation = await bundle({
-                entryPoint: path.join(__dirname, 'remotion', 'index.tsx')
+                entryPoint: path.join(__dirname, 'remotion', 'index.ts')
             });
 
             const videoBasename = path.basename(videoSource);
@@ -256,11 +305,6 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                     inputProps
                 });
 
-                // Override the default duration and dimensions with the dynamic ones from the video
-                composition.durationInFrames = Number(durationInFrames);
-                composition.width = Number(targetW);
-                composition.height = Number(targetH);
-
                 const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
                 await renderMedia({
                     composition,
@@ -281,7 +325,7 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                            "--disable-web-security",
                            "--disable-gpu"
                        ]
-                    } as any
+                    }
                 });
                 console.log("[Export] Remotion rendering completed (video only). Muxing audio...");
                 
@@ -341,14 +385,14 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
             '-y',
             '-i', videoSource,
             '-vf', filterStr,
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast',
+            '-c:v', useNvenc ? 'h264_nvenc' : 'libx264',
+            '-preset', useNvenc ? 'p4' : 'ultrafast',
             '-profile:v', 'main',
             '-level', '3.1',
             '-pix_fmt', 'yuv420p',
-            '-crf', '24',
+            ...(useNvenc ? ['-cq', '26', '-b:v', '0'] : ['-crf', '24']),
+            ...(useNvenc ? ['-rc', 'vbr'] : ['-threads', '0']),
             '-c:a', 'copy',
-            '-threads', '0',
             '-movflags', '+faststart',
             outputPath
             ];
@@ -394,7 +438,9 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
       // Try to clean up vercel blob if we used it (graceful fail)
       if (videoUrl) await del(videoUrl).catch(() => {});
     }
-  })();
+  };
+
+  enqueueJob(sessionId, jobRunner);
 });
 
 app.get("/api/export-status/:jobId", async (req: any, res: any) => {

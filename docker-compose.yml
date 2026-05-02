@@ -10,6 +10,10 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - USE_NVENC=true
+      - MAX_CONCURRENT_JOBS=5
+    env_file:
+      - .env
     restart: always
 
   # If you want to serve the frontend via Docker as well:
