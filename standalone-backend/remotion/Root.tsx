@@ -9,10 +9,10 @@ export const RemotionRoot = () => {
 			<Composition
 				id="Captions"
 				component={CaptionsComposition}
-				durationInFrames={Number(props.durationInFrames) || 300}
+				durationInFrames={props.durationInFrames || 300}
 				fps={30}
-				width={Number(props.videoWidth) || 1080}
-				height={Number(props.videoHeight) || 1920}
+				width={props.videoWidth || 1080}
+				height={props.videoHeight || 1920}
 				defaultProps={props}
 			/>
 		</>
