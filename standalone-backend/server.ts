@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import os from "os";
 
-const _projectDir = process.cwd();
+const _projectDir = __dirname;
 import fs from "fs";
 import { spawn } from "child_process";
 import { v4 as uuidv4 } from "uuid";
