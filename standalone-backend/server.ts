@@ -258,8 +258,27 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
             const { bundle } = await import('@remotion/bundler');
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
             
+            // Foolproof resolution of remotion/index.ts
+            let remotionEntryPoint = path.join(__dirname, 'remotion', 'index.ts');
+            if (!fs.existsSync(remotionEntryPoint)) {
+                remotionEntryPoint = path.join(__dirname, '..', 'remotion', 'index.ts');
+            }
+            if (!fs.existsSync(remotionEntryPoint)) {
+                remotionEntryPoint = path.join(process.cwd(), 'remotion', 'index.ts');
+            }
+            if (!fs.existsSync(remotionEntryPoint)) {
+                remotionEntryPoint = path.join(process.cwd(), 'standalone-backend', 'remotion', 'index.ts');
+            }
+            if (!fs.existsSync(remotionEntryPoint)) {
+                // If all else fails, log it out to help debug
+                console.error("[Export] Critical: Cannot find remotion/index.ts. __dirname is: " + __dirname + " and cwd is: " + process.cwd());
+                throw new Error("Cannot find remotion directory.");
+            }
+            
+            console.log(`[Export] Resolved Remotion EntryPoint: ${remotionEntryPoint}`);
+
             const bundleLocation = await bundle({
-                entryPoint: path.join(_projectDir, 'remotion', 'index.ts')
+                entryPoint: remotionEntryPoint
             });
 
             const videoBasename = path.basename(videoSource);
