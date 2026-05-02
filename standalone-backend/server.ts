@@ -49,12 +49,9 @@ app.use("/temp", (req, res, next) => {
 }, express.static(os.tmpdir()));
 
 // Set the native ffmpeg binary path for fluent-ffmpeg
-let validFfmpegPath = ffmpegStatic;
-if (!validFfmpegPath) {
-  console.warn("ffmpegStatic returned null, fallback via import not trivial");
-}
+let validFfmpegPath = process.env.SYSTEM_FFMPEG_PATH || 'ffmpeg'; // Defaulting to system ffmpeg for h264_nvenc
 ffmpeg.setFfmpegPath(validFfmpegPath as string);
-console.log(`[FFmpeg] Using native binary at: ${validFfmpegPath}`);
+console.log(`[FFmpeg] Using binary at: ${validFfmpegPath}`);
 
 // Configure Multer for processing incoming video uploads directly to disk temporary storage
 const uploadDir = path.join(os.tmpdir(), 'uploads');
@@ -109,6 +106,25 @@ async function ensureFont(fontName: string): Promise<string | null> {
 
 const exportJobs = new Map<string, { status: string; progress?: number; downloadUrl?: string; error?: string }>();
 
+const jobQueue: (() => Promise<void>)[] = [];
+let isQueueProcessing = false;
+
+async function processQueue() {
+  if (isQueueProcessing) return;
+  isQueueProcessing = true;
+  while (jobQueue.length > 0) {
+    const job = jobQueue.shift();
+    if (job) {
+      try {
+        await job();
+      } catch (err) {
+        console.error("[Queue] Job failed", err);
+      }
+    }
+  }
+  isQueueProcessing = false;
+}
+
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
 
 app.get("/", (_req, res) => {
@@ -160,10 +176,11 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
   const sessionId = uuidv4().substring(0, 8);
   let videoSource = uploadedFilePath || videoUrl;
   
-  exportJobs.set(sessionId, { status: 'processing' });
+  exportJobs.set(sessionId, { status: 'pending' });
   res.json({ jobId: sessionId });
 
-  (async () => {
+  jobQueue.push(async () => {
+    exportJobs.set(sessionId, { status: 'processing' });
     let srtFileName: string | undefined;
     let outputPath: string | undefined;
     let downloadedVideoPath: string | undefined;
@@ -224,7 +241,7 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
             
             const bundleLocation = await bundle({
-                entryPoint: path.join(__dirname, 'remotion', 'index.tsx')
+                entryPoint: path.join(__dirname, 'remotion', 'index.ts')
             });
 
             const videoBasename = path.basename(videoSource);
@@ -256,11 +273,6 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                     inputProps
                 });
 
-                // Override the default duration and dimensions with the dynamic ones from the video
-                composition.durationInFrames = Number(durationInFrames);
-                composition.width = Number(targetW);
-                composition.height = Number(targetH);
-
                 const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
                 await renderMedia({
                     composition,
@@ -281,7 +293,7 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                            "--disable-web-security",
                            "--disable-gpu"
                        ]
-                    } as any
+                    }
                 });
                 console.log("[Export] Remotion rendering completed (video only). Muxing audio...");
                 
@@ -341,12 +353,12 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
             '-y',
             '-i', videoSource,
             '-vf', filterStr,
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast',
+            '-c:v', 'h264_nvenc',
+            '-preset', 'fast',
             '-profile:v', 'main',
             '-level', '3.1',
             '-pix_fmt', 'yuv420p',
-            '-crf', '24',
+            '-b:v', '4M', // Use a robust bitrate instead of CRF for NVENC
             '-c:a', 'copy',
             '-threads', '0',
             '-movflags', '+faststart',
@@ -394,7 +406,9 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
       // Try to clean up vercel blob if we used it (graceful fail)
       if (videoUrl) await del(videoUrl).catch(() => {});
     }
-  })();
+  });
+
+  processQueue();
 });
 
 app.get("/api/export-status/:jobId", async (req: any, res: any) => {
