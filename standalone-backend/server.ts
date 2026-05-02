@@ -1,3 +1,4 @@
+import { Readable } from "stream";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -124,9 +125,36 @@ app.get("/", (_req, res) => {
   `);
 });
 
-app.get("/api/download-export/:fileId", (req, res) => {
+app.get("/api/download-export/:fileId", async (req, res) => {
   const { fileId } = req.params;
-  const { name } = req.query;
+  const { name, remoteUrl } = req.query;
+
+  if (remoteUrl && typeof remoteUrl === 'string') {
+    try {
+       const remoteResponse = await fetch(remoteUrl);
+       if (!remoteResponse.ok) throw new Error("Backend file not found");
+       res.setHeader('Content-Type', 'video/mp4');
+       const downloadName = name ? String(name) : 'exported_video.mp4';
+       res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+       
+       const body = remoteResponse.body;
+       if (!body) throw new Error("No body");
+       
+       const reader = body.getReader();
+       const stream = new Readable({
+         async read() {
+           const { done, value } = await reader.read();
+           if (done) this.push(null);
+           else this.push(Buffer.from(value));
+         }
+       });
+       return stream.pipe(res);
+    } catch (e: any) {
+       console.error("[Proxy Download] Error:", e);
+       return res.status(404).send("File not found on remote server.");
+    }
+  }
+
   const tempDir = os.tmpdir();
   const filePath = path.join(tempDir, `out_${fileId}.mp4`);
   
@@ -163,6 +191,78 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
   exportJobs.set(sessionId, { status: 'processing' });
   res.json({ jobId: sessionId });
 
+  // --- PROXY TO VAST GPU Backend if configured ---
+  const GPU_BACKEND_URL = process.env.VAST_GPU_URL || process.env.GPU_BACKEND_URL;
+  if (GPU_BACKEND_URL) {
+    console.log(`[Export Pipeline] Delegating rendering to GPU Backend at: ${GPU_BACKEND_URL}`);
+    (async () => {
+      try {
+        const formData = new FormData();
+        formData.append('originalName', safeOriginalName);
+        formData.append('srtContent', srtContent);
+        formData.append('isAss', String(isAss));
+        if (assStyle) formData.append('assStyle', assStyle);
+        if (videoWidth) formData.append('videoWidth', videoWidth);
+        if (videoHeight) formData.append('videoHeight', videoHeight);
+        if (req.body.captionsJson) formData.append('captionsJson', req.body.captionsJson);
+        if (req.body.styleOptions) formData.append('styleOptions', req.body.styleOptions);
+        if (req.body.duration) formData.append('duration', req.body.duration);
+
+        if (videoUrl) {
+          formData.append('videoUrl', videoUrl);
+        } else if (uploadedFilePath) {
+          const videoBuffer = fs.readFileSync(uploadedFilePath);
+          const blob = new Blob([videoBuffer], { type: 'video/mp4' });
+          formData.append('video', blob, safeOriginalName);
+        }
+
+        const response = await fetch(`${GPU_BACKEND_URL}/api/export-video`, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          const errBody = await response.text();
+          throw new Error(`GPU Backend failed with status ${response.status}: ${errBody}`);
+        }
+        
+        const gpuResponse = await response.json() as { jobId: string };
+        console.log(`[Export Pipeline] GPU task accepted. Remote Job ID: ${gpuResponse.jobId}`);
+        
+        // Background polling to track GPU task status
+        const remoteJobId = gpuResponse.jobId;
+        const pollInterval = setInterval(async () => {
+           try {
+              const statRes = await fetch(`${GPU_BACKEND_URL}/api/export-status/${remoteJobId}`);
+              if (!statRes.ok) return;
+              const statData = await statRes.json() as any;
+              
+              if (statData.status === 'completed') {
+                clearInterval(pollInterval);
+                const localDownloadUrl = `/api/download-export/${sessionId}?remoteUrl=${encodeURIComponent(`${GPU_BACKEND_URL}${statData.downloadUrl}`)}`;
+                exportJobs.set(sessionId, { status: 'completed', downloadUrl: localDownloadUrl });
+              } else if (statData.status === 'failed') {
+                clearInterval(pollInterval);
+                exportJobs.set(sessionId, { status: 'failed', error: statData.error });
+              }
+           } catch (e) {
+              console.error("[Export Pipeline] Error polling GPU task:", e);
+           }
+        }, 3000);
+
+        setTimeout(() => clearInterval(pollInterval), 30 * 60 * 1000);
+        
+      } catch (error: any) {
+         console.error("[Export Pipeline] Proxy to GPU Backend Failed:", error);
+         exportJobs.set(sessionId, { status: 'failed', error: 'GPU Backend communication failed.' });
+      } finally {
+         if (uploadedFilePath && fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath);
+      }
+    })();
+    return;
+  }
+
+  // --- Start Background Task (Local Fallback if No Vast GPU defined) ---
   (async () => {
     let srtFileName: string | undefined;
     let outputPath: string | undefined;
