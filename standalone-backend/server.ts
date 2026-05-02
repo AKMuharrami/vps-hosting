@@ -1,10 +1,8 @@
 import express from "express";
 import path from "path";
-import { fileURLToPath } from "url";
 import os from "os";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const _projectDir = process.cwd();
 import fs from "fs";
 import { spawn } from "child_process";
 import { v4 as uuidv4 } from "uuid";
@@ -261,7 +259,7 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
             
             const bundleLocation = await bundle({
-                entryPoint: path.join(__dirname, 'remotion', 'index.ts')
+                entryPoint: path.join(_projectDir, 'remotion', 'index.ts')
             });
 
             const videoBasename = path.basename(videoSource);
@@ -307,7 +305,7 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                            "--allow-file-access-from-files",
                            "--disable-web-security"
                        ]
-                    }
+                    } as any
                 });
                 console.log("[Export] Remotion rendering completed.");
             } catch (renderErr: any) {
@@ -328,7 +326,7 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                 cleanStyle = cleanStyle.replace(/Fontname=[^,]+/, `Fontname='${fontName}'`);
             }
             
-            const escapedFontsDir = fontsDir.replace(/\\/g, '/').replace(/'/g, "'\\''").replace(/:/g, '\\\\:');
+            const escapedFontsDir = fontsDir ? fontsDir.replace(/\\/g, '/').replace(/'/g, "'\\''").replace(/:/g, '\\\\:') : '';
             
             let subtitleFilter = '';
             if (isAss) {
