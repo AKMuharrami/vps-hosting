@@ -1,16 +1,7 @@
-# For Vast.ai with NVIDIA GPUs, we MUST use an NVIDIA CUDA base image
-# to gain access to the NVENC hardware encoders.
-FROM nvidia/cuda:12.2.2-base-ubuntu22.04
+FROM node:20-bullseye-slim
 
-# Set non-interactive mode for apt-get
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install Node.js, Chrome dependencies, and FFmpeg (with NVENC support from standard ubuntu repos)
+# Install Chrome dependencies + ffmpeg
 RUN apt-get update && apt-get install -y \
-    curl \
-    gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
     libnspr4 \
     libnss3 \
     libatk1.0-0 \
@@ -50,5 +41,5 @@ RUN npm install
 # Copy the rest of the application
 COPY . .
 
-# Start the server queue
+# Railway uses the start script defined in package.json
 CMD ["npm", "start"]
