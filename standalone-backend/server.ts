@@ -102,6 +102,18 @@ app.use("/temp", (req, res, next) => {
   next();
 }, express.static(os.tmpdir()));
 
+// New route to serve Remotion bundle
+app.use("/bundle", (req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  next();
+}, (req, res, next) => {
+  if (globalCachedBundleLocation) {
+    express.static(globalCachedBundleLocation)(req, res, next);
+  } else {
+    res.status(404).send("Bundle not ready");
+  }
+});
+
 // Set the native ffmpeg binary path for fluent-ffmpeg
 let validFfmpegPath = process.env.SYSTEM_FFMPEG_PATH || 'ffmpeg'; // Defaulting to system ffmpeg for h264_nvenc
 ffmpeg.setFfmpegPath(validFfmpegPath as string);
@@ -293,22 +305,35 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
             
             if (!globalCachedBundleLocation) {
-                console.log("[Export] Bundling Remotion project...");
+                console.log("[Export] Bundling Remotion project... this might take a minute on first run.");
                 globalCachedBundleLocation = await bundle({
                     entryPoint: path.join(__dirname, 'remotion', 'index.tsx')
                 });
+                console.log(`[Export] Bundle created at: ${globalCachedBundleLocation}`);
+                try {
+                  const files = fs.readdirSync(globalCachedBundleLocation);
+                  console.log(`[Export] Bundle contents: ${files.join(', ')}`);
+                } catch (e) {
+                  console.error("[Export] Could not list bundle files:", e);
+                }
             }
             const bundleLocation = globalCachedBundleLocation;
+            // Use our Express server to serve the bundle to Chromium
+            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}/bundle/index.html`;
 
-            console.log(`[Export] Using internal bundle path: ${bundleLocation}`);
-            console.log(`[Export] Using direct video source: ${videoSource}`);
+            const relativePath = path.relative(os.tmpdir(), videoSource);
+            // Provide a local URL for the headless browser to fetch the video file
+            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
+
+            console.log(`[Export] Internal Bundle URL: ${serveUrl}`);
+            console.log(`[Export] Internal Video URL: ${localVideoUrl}`);
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
             const durationInFrames = Math.max(1, Math.ceil(validDuration * 30));
 
             const inputProps = {
-                videoUrl: `file://${videoSource}`.replace(/\\/g, '/'),
+                videoUrl: localVideoUrl,
                 captions: captionsParams,
                 styleOptions: styleOptionsParsed,
                 videoWidth: Number(targetW),
@@ -331,7 +356,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             };
 
             const composition = await selectComposition({
-                serveUrl: bundleLocation,
+                serveUrl,
                 id: 'Captions',
                 inputProps,
                 chromiumOptions,
@@ -343,7 +368,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
             await renderMedia({
                 composition,
-                serveUrl: bundleLocation,
+                serveUrl,
                 codec: 'h264',
                 imageFormat: 'jpeg',
                 outputLocation: tempVideoPath,
