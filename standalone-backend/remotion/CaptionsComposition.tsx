@@ -93,9 +93,6 @@ export const CaptionsComposition = ({
     const videoHeight = propVideoHeight || styleOptions?.videoHeight || 1920;
     const scaleRatio = videoHeight / previewHeight;
     const scaledFontSize = Math.floor((styleOptions?.fontSize ?? 40) * scaleRatio);
-    
-    
-    // font size is now provided as a percentage of video width (cqi)
     const scaledPaddingY = Math.floor(8 * scaleRatio);
     const scaledPaddingX = Math.floor(10 * scaleRatio);
     const scaledStroke = Math.floor((styleOptions?.strokeSize ?? 1) * scaleRatio);
@@ -141,9 +138,9 @@ export const CaptionsComposition = ({
             );
         }
     }
+    
     const posX = styleOptions?.captionPosition?.x ?? 0;
     const posY = styleOptions?.captionPosition?.y ?? 0;
-    // posX and posY are from the preview space, so they must be scaled up to video space
 
     return (
         <AbsoluteFill style={{ backgroundColor: 'black' }}>
