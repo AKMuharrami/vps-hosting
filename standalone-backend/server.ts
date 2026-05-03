@@ -248,7 +248,7 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
             if (!globalCachedBundleLocation) {
                 console.log("[Export] Bundling Remotion project for the first time...");
                 globalCachedBundleLocation = await bundle({
-                    entryPoint: path.join(__dirname, 'remotion', 'index.ts')
+                    entryPoint: path.join(__dirname, 'remotion', 'index.tsx')
                 });
             }
             const bundleLocation = globalCachedBundleLocation;
