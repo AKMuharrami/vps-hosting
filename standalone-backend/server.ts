@@ -109,7 +109,6 @@ const exportJobs = new Map<string, { status: string; progress?: number; download
 const jobQueue: (() => Promise<void>)[] = [];
 let isQueueProcessing = false;
 let globalCachedBundleLocation: string | null = null;
-let globalCachedBundlePort: number | null = null;
 
 async function processQueue() {
   if (isQueueProcessing) return;
