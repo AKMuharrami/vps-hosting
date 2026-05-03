@@ -144,15 +144,13 @@ export const CaptionsComposition = ({
     const posY = styleOptions?.captionPosition?.y ?? 0;
 
     return (
-        <AbsoluteFill style={{ backgroundColor: captionsOnly ? '#00FF00' : 'black' }}>
-            {!captionsOnly && (
-                <Video 
-                    src={videoUrl} 
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
-                    muted
-                    onError={(e) => console.error('Video error:', e)}
-                />
-            )}
+        <AbsoluteFill style={{ backgroundColor: 'black' }}>
+            <Video 
+                src={videoUrl} 
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
+                muted
+                onError={(e) => console.error('Video error:', e)}
+            />
             
             {activeCaption && fontLoaded && (
                 <div style={{

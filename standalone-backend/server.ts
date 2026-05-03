@@ -257,12 +257,9 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             const durationInFrames = Math.max(1, Math.ceil(validDuration * 30));
 
             const inputProps = {
-                videoUrl: '', // no need for videoUrl, we use overlay
+                videoUrl: `file://${videoSource}`.replace(/\\/g, '/'),
                 captions: captionsParams,
-                styleOptions: {
-                    ...styleOptionsParsed,
-                    captionsOnly: true
-                },
+                styleOptions: styleOptionsParsed,
                 videoWidth: Number(targetW),
                 videoHeight: Number(targetH),
                 durationInFrames: Number(durationInFrames)
@@ -292,13 +289,13 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             });
 
-            const tempOverlayPath = outputPath.replace('.mp4', '_captions.mp4');
+            const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
             await renderMedia({
                 composition,
                 serveUrl: bundleLocation,
                 codec: 'h264',
                 imageFormat: 'jpeg',
-                outputLocation: tempOverlayPath,
+                outputLocation: tempVideoPath,
                 inputProps,
                 concurrency: os.cpus().length || null,
                 chromiumOptions,
@@ -307,33 +304,27 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             });
             
-            console.log("[Export] Remotion rendering success. Muxing overlay with ffmpeg...");
+            console.log("[Export] Remotion rendering success. Muxing original audio with ffmpeg...");
             
             await new Promise((resolve, reject) => {
                 ffmpeg()
+                    .input(tempVideoPath)
                     .input(videoSource)
-                    .input(tempOverlayPath)
-                    .complexFilter([
-                        '[1:v]colorkey=0x00FF00:0.05:0.1[ckout];[0:v][ckout]overlay=x=0:y=0[outv]'
-                    ])
                     .outputOptions([
-                        '-map [outv]',
-                        '-map 0:a?',
-                        '-c:v libx264',
-                        '-preset fast',
-                        '-crf 23',
-                        '-c:a aac',
-                        '-b:a 192k',
+                        '-c:v copy',
+                        '-map 0:v:0',
+                        '-map 1:a:0?',
                         '-shortest'
                     ])
                     .save(outputPath)
                     .on('end', () => {
-                        try { fs.unlinkSync(tempOverlayPath); } catch(e) {}
+                        try { fs.unlinkSync(tempVideoPath); } catch(e) {}
                         resolve(null);
                     })
                     .on('error', (err) => {
-                        console.error("[Export] Muxing error:", err);
-                        reject(err);
+                        console.error("[Export] Muxing error, outputting video only:", err);
+                        try { fs.renameSync(tempVideoPath, outputPath); } catch(e) {}
+                        resolve(null);
                     });
             });
         } else {
