@@ -2,6 +2,8 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import os from "os";
+import http from "http";
+import https from "https";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,6 +41,49 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control']
 }));
+
+if (process.env.VAST_AI_URL) {
+  const vastUrl = process.env.VAST_AI_URL.replace(/\/$/, "");
+  console.log(`[Proxy] VAST_AI_URL configured: ${vastUrl}. Acting as Middleman proxy.`);
+  
+  const proxyToVast = (req: any, res: any) => {
+    const targetUrl = new URL(req.originalUrl || req.url, vastUrl);
+    console.log(`[Proxy] Forwarding ${req.method} ${req.originalUrl || req.url} to ${targetUrl.toString()}`);
+    
+    const reqFn = targetUrl.protocol === 'https:' ? https.request : http.request;
+    
+    const options = {
+      hostname: targetUrl.hostname,
+      port: targetUrl.port || (targetUrl.protocol === 'https:' ? 443 : 80),
+      path: targetUrl.pathname + targetUrl.search,
+      method: req.method,
+      headers: { ...req.headers },
+    };
+    
+    delete options.headers.host;
+    // Remove connection headers to avoid keep-alive issues
+    delete options.headers.connection;
+    
+    const proxyReq = reqFn(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
+      proxyRes.pipe(res, { end: true });
+    });
+    
+    proxyReq.on('error', (err) => {
+      console.error(`[Proxy] Error forwarding to Vast AI: ${err.message}`);
+      if (!res.headersSent) {
+        res.status(502).json({ error: "Bad Gateway - Vast AI worker unreachable." });
+      }
+    });
+    
+    req.pipe(proxyReq, { end: true });
+  };
+
+  app.use('/api/export-video', proxyToVast);
+  app.use('/api/export-status', proxyToVast);
+  app.use('/api/download-export', proxyToVast);
+}
+
 app.use(express.json({limit: "50mb"}));
 app.use(express.urlencoded({limit: "50mb", extended: true, parameterLimit:50000}));
 app.use(express.text({ limit: '200mb' }));
