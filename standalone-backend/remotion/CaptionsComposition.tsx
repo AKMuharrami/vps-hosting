@@ -144,7 +144,7 @@ export const CaptionsComposition = ({
     const posY = styleOptions?.captionPosition?.y ?? 0;
 
     return (
-        <AbsoluteFill style={{ backgroundColor: captionsOnly ? 'transparent' : 'black' }}>
+        <AbsoluteFill style={{ backgroundColor: captionsOnly ? '#00FF00' : 'black' }}>
             {!captionsOnly && (
                 <Video 
                     src={videoUrl} 

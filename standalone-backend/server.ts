@@ -292,16 +292,15 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             });
 
-            const tempWebmPath = outputPath.replace('.mp4', '_captions.webm');
+            const tempOverlayPath = outputPath.replace('.mp4', '_captions.mp4');
             await renderMedia({
                 composition,
                 serveUrl: bundleLocation,
-                codec: 'vp8',
-                imageFormat: 'png',
-                outputLocation: tempWebmPath,
+                codec: 'h264',
+                imageFormat: 'jpeg',
+                outputLocation: tempOverlayPath,
                 inputProps,
                 concurrency: os.cpus().length || null,
-                transparent: true,
                 chromiumOptions,
                 onBrowserLog: (log) => {
                     console.log(`[Browser] ${log.type}: ${log.text}`);
@@ -313,9 +312,9 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             await new Promise((resolve, reject) => {
                 ffmpeg()
                     .input(videoSource)
-                    .input(tempWebmPath)
+                    .input(tempOverlayPath)
                     .complexFilter([
-                        '[0:v][1:v]overlay=0:0[outv]'
+                        '[1:v]colorkey=0x00FF00:0.05:0.1[ckout];[0:v][ckout]overlay=x=0:y=0[outv]'
                     ])
                     .outputOptions([
                         '-map [outv]',
@@ -329,7 +328,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     ])
                     .save(outputPath)
                     .on('end', () => {
-                        try { fs.unlinkSync(tempWebmPath); } catch(e) {}
+                        try { fs.unlinkSync(tempOverlayPath); } catch(e) {}
                         resolve(null);
                     })
                     .on('error', (err) => {
