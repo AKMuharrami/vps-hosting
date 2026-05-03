@@ -455,4 +455,6 @@ app.get("/api/export-status/:jobId", async (req: any, res: any) => {
 
 app.listen(PORT as number, "0.0.0.0", () => {
   console.log(`Server is running on port ${PORT}`);
+  // Prevent Remotion's internal serve-static from conflicting with our Express port 3000
+  delete process.env.PORT; 
 });
