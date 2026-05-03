@@ -69,6 +69,15 @@ if (process.env.VAST_AI_URL) {
       proxyRes.pipe(res, { end: true });
     });
     
+    // Set a long timeout for video processing (10 minutes)
+    proxyReq.setTimeout(600000, () => {
+      console.error(`[Proxy] Request to Vast AI timed out after 10 minutes`);
+      proxyReq.destroy();
+      if (!res.headersSent) {
+        res.status(504).json({ error: "Gateway Timeout - Video processing took too long on worker." });
+      }
+    });
+
     proxyReq.on('error', (err) => {
       console.error(`[Proxy] Error forwarding to Vast AI: ${err.message}`);
       if (!res.headersSent) {
