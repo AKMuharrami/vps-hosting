@@ -249,8 +249,11 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 const bundleApp = express();
                 bundleApp.use(cors());
                 bundleApp.use(express.static(globalCachedBundleLocation));
-                bundleApp.listen(39485, '127.0.0.1', () => {
-                   console.log("[Export] Remotion bundle static server running on port 39485");
+                await new Promise<void>((resolve) => {
+                   bundleApp.listen(39485, '127.0.0.1', () => {
+                      console.log("[Export] Remotion bundle static server running on port 39485");
+                      resolve();
+                   });
                 });
             }
             const bundleLocation = `http://127.0.0.1:39485`;
