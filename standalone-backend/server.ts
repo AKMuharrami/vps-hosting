@@ -257,9 +257,12 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             const durationInFrames = Math.max(1, Math.ceil(validDuration * 30));
 
             const inputProps = {
-                videoUrl: localVideoUrl,
+                videoUrl: '', // no need for videoUrl, we use overlay
                 captions: captionsParams,
-                styleOptions: styleOptionsParsed,
+                styleOptions: {
+                    ...styleOptionsParsed,
+                    captionsOnly: true
+                },
                 videoWidth: Number(targetW),
                 videoHeight: Number(targetH),
                 durationInFrames: Number(durationInFrames)
@@ -272,7 +275,10 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--disable-setuid-sandbox", 
                     "--disable-gpu", 
                     "--disable-web-security",
-                    "--disable-dev-shm-usage"
+                    "--disable-dev-shm-usage",
+                    "--allow-file-access-from-files",
+                    "--allow-file-access",
+                    "--autoplay-policy=no-user-gesture-required"
                 ]
             };
 
@@ -286,39 +292,48 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             });
 
-            const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
+            const tempWebmPath = outputPath.replace('.mp4', '_captions.webm');
             await renderMedia({
                 composition,
                 serveUrl: bundleLocation,
-                codec: 'h264',
-                outputLocation: tempVideoPath,
+                codec: 'webm',
+                outputLocation: tempWebmPath,
                 inputProps,
                 concurrency: os.cpus().length || null,
-                crf: 24, // High quality
-                imageFormat: 'jpeg',
-                jpegQuality: 85,
+                transparent: true,
                 chromiumOptions,
                 onBrowserLog: (log) => {
                     console.log(`[Browser] ${log.type}: ${log.text}`);
                 }
             });
             
-            console.log("[Export] Remotion rendering success. Muxing original audio...");
+            console.log("[Export] Remotion rendering success. Muxing overlay with ffmpeg...");
             
             await new Promise((resolve, reject) => {
                 ffmpeg()
-                    .input(tempVideoPath)
                     .input(videoSource)
-                    .outputOptions(['-c:v copy', '-c:a aac', '-map 0:v:0', '-map 1:a:0?', '-shortest'])
+                    .input(tempWebmPath)
+                    .complexFilter([
+                        '[0:v][1:v]overlay=0:0[outv]'
+                    ])
+                    .outputOptions([
+                        '-map [outv]',
+                        '-map 0:a?',
+                        '-c:v libx264',
+                        '-preset fast',
+                        '-crf 23',
+                        '-c:a aac',
+                        '-b:a 192k',
+                        '-shortest'
+                    ])
                     .save(outputPath)
                     .on('end', () => {
-                        try { fs.unlinkSync(tempVideoPath); } catch(e) {}
+                        try { fs.unlinkSync(tempWebmPath); } catch(e) {}
                         resolve(null);
                     })
                     .on('error', (err) => {
-                        console.error("[Export] Muxing error, outputting video only:", err);
-                        try { fs.renameSync(tempVideoPath, outputPath); } catch(e) {}
-                        resolve(null);
+                        console.error("[Export] Muxing error:", err);
+                        reject(err);
                     });
             });
         } else {
