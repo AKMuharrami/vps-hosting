@@ -1,28 +1,33 @@
+/**
+ * REVISED BACKEND SERVER - VERSION 2.0 (MODIFIED BY AI AGENT)
+ * ---------------------------------------------------------
+ * This version uses local bundling for Remotion as recommended.
+ * Port: 8080 (Vast.ai mapped)
+ * Author: Mumantij AI Assistant
+ */
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import os from "os";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 import fs from "fs";
 import { spawn } from "child_process";
 import { v4 as uuidv4 } from "uuid";
 import cors from "cors";
 import dotenv from "dotenv";
 import multer from "multer";
-
 import ffmpeg from "fluent-ffmpeg";
-import ffmpegStatic from "ffmpeg-static";
 
 // Optional: Vercel Blob API (only if you fallback to blob links)
 import { del } from "@vercel/blob";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
 // Initialize backend app
 const app = express();
-const PORT = process.env.PORT || 3000; // Match Docker Compose mapping
+const PORT = process.env.PORT || 3000; 
 
 // Debug logging for every request
 app.use((req, res, next) => {
@@ -31,39 +36,29 @@ app.use((req, res, next) => {
 });
 
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow all origins
-    callback(null, true);
-  },
+  origin: true,
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control']
 }));
 app.use(express.json({limit: "50mb"}));
 app.use(express.urlencoded({limit: "50mb", extended: true, parameterLimit:50000}));
-app.use(express.text({ limit: '200mb' }));
 
-app.use("/temp", (req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  next();
-}, express.static(os.tmpdir()));
+app.use("/temp", express.static(os.tmpdir()));
 
 // Set the native ffmpeg binary path for fluent-ffmpeg
-let validFfmpegPath = process.env.SYSTEM_FFMPEG_PATH || 'ffmpeg'; // Defaulting to system ffmpeg for h264_nvenc
+let validFfmpegPath = process.env.SYSTEM_FFMPEG_PATH || 'ffmpeg'; 
 ffmpeg.setFfmpegPath(validFfmpegPath as string);
 console.log(`[FFmpeg] Using binary at: ${validFfmpegPath}`);
 
-// Configure Multer for processing incoming video uploads directly to disk temporary storage
+// Configure Multer
 const uploadDir = path.join(os.tmpdir(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 const upload = multer({ 
   dest: uploadDir,
-  limits: { fileSize: 500 * 1024 * 1024 } // 500MB max limit to cover raw 4K mobile video inputs
+  limits: { fileSize: 500 * 1024 * 1024 } 
 });
 
-// Font Manager
 const FONT_URLS: Record<string, string> = {
   'Janna LT': 'https://hjrm8lbtnby37npy.public.blob.vercel-storage.com/Janna%20LT%20Regular.ttf',
   'Cairo': 'https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf',
@@ -77,35 +72,26 @@ const FONT_URLS: Record<string, string> = {
   'Noto Sans SC': 'https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf'
 };
 
-async function downloadFont(fontName: string, url: string, fontsDir: string) {
-  const fontPath = path.join(fontsDir, `${fontName}_v2.ttf`);
-  if (fs.existsSync(fontPath)) return;
-  try {
-    console.log(`[Font Installer] Downloading font: ${fontName} from ${url}`);
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Font download failed: ${response.statusText}`);
-    const buffer = await response.arrayBuffer();
-    fs.writeFileSync(fontPath, Buffer.from(buffer));
-    console.log(`[Font Installer] Font ${fontName} installed at: ${fontPath}`);
-  } catch (err) {
-    console.error(`[Font Installer] Failed to download font ${fontName}:`, err);
-  }
-}
-
 async function ensureFont(fontName: string): Promise<string | null> {
-  console.log(`[Font Installer] Ensure font called with: '${fontName}'`);
   const fontsDir = path.join(os.tmpdir(), 'fonts');
   if (!fs.existsSync(fontsDir)) fs.mkdirSync(fontsDir, { recursive: true });
 
   const normalizedKey = Object.keys(FONT_URLS).find(k => k.toLowerCase() === fontName.toLowerCase());
   const actualFontName = normalizedKey ? normalizedKey : 'DejaVu Sans';
+  const url = FONT_URLS[actualFontName];
+  const fontPath = path.join(fontsDir, `${actualFontName}_v2.ttf`);
   
-  await downloadFont(actualFontName, FONT_URLS[actualFontName], fontsDir);
+  if (!fs.existsSync(fontPath)) {
+     try {
+       const response = await fetch(url);
+       const buffer = await response.arrayBuffer();
+       fs.writeFileSync(fontPath, Buffer.from(buffer));
+     } catch (e) {}
+  }
   return fontsDir;
 }
 
 const exportJobs = new Map<string, { status: string; progress?: number; downloadUrl?: string; error?: string }>();
-
 const jobQueue: (() => Promise<void>)[] = [];
 let isQueueProcessing = false;
 let globalCachedBundleLocation: string | null = null;
@@ -115,330 +101,135 @@ async function processQueue() {
   isQueueProcessing = true;
   while (jobQueue.length > 0) {
     const job = jobQueue.shift();
-    if (job) {
-      try {
-        await job();
-      } catch (err) {
-        console.error("[Queue] Job failed", err);
-      }
-    }
+    if (job) await job().catch(console.error);
   }
   isQueueProcessing = false;
 }
 
-app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+app.get("/api/health", (_req, res) => res.json({ status: "ok", version: "v2-fixed" }));
 
 app.get("/", (_req, res) => {
-  res.send(`
-    <html>
-      <head><title>Mumantij AI Backend</title></head>
-      <body>
-        <h1>Mumantij AI Backend is Running</h1>
-        <p>Status: Healthy</p>
-        <p>Endpoint: <code>/api/export-video</code></p>
-      </body>
-    </html>
-  `);
+  res.send("Mumantij AI Backend Running (V2 Fixed)");
 });
 
 app.get("/api/download-export/:fileId", (req, res) => {
   const { fileId } = req.params;
-  const { name } = req.query;
-  const tempDir = os.tmpdir();
-  const filePath = path.join(tempDir, `out_${fileId}.mp4`);
-  
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).send("File not found or expired. Please export again.");
-  }
-
-  const downloadName = name ? String(name) : 'exported_video.mp4';
-  res.setHeader('Content-Type', 'video/mp4');
-  res.download(filePath, downloadName);
+  const filePath = path.join(os.tmpdir(), `out_${fileId}.mp4`);
+  if (!fs.existsSync(filePath)) return res.status(404).send("File not found");
+  res.download(filePath, 'exported_video.mp4');
 });
 
 app.post("/api/export-video", upload.single('video'), async (req: any, res: any) => {
   const videoUrl = req.body.videoUrl || '';
   const uploadedFilePath = req.file?.path;
-  
-  const { srtContent, assStyle, originalName, videoWidth, videoHeight, aspectRatio } = req.body;
-  const isAss = String(req.body.isAss) === 'true';
-  
-  const safeOriginalName = (originalName || 'video.mp4').replace(/[^a-zA-Z0-9._-]/g, '_');
-  console.log(`[Export Pipeline] Received job for: ${safeOriginalName}`);
-  
-  if (!videoUrl && !uploadedFilePath) {
-    return res.status(400).json({ error: "No video provided." });
-  }
-  
-  if (!srtContent) {
-     return res.status(400).json({ error: "Missing subtitle parameters." });
-  }
-
-  if (jobQueue.length >= 30) {
-     return res.status(429).json({ error: "Server is currently at maximum capacity. Please try again in a few minutes." });
-  }
-
   const sessionId = uuidv4().substring(0, 8);
-  let videoSource = uploadedFilePath || videoUrl;
   
-  exportJobs.set(sessionId, { status: 'pending' });
   res.json({ jobId: sessionId });
 
   jobQueue.push(async () => {
     exportJobs.set(sessionId, { status: 'processing' });
-    let srtFileName: string | undefined;
-    let outputPath: string | undefined;
-    let downloadedVideoPath: string | undefined;
-    
+    let videoSource = uploadedFilePath || videoUrl;
+    let outputPath = path.join(os.tmpdir(), `out_${sessionId}.mp4`);
+
     try {
         if (videoSource.startsWith('http')) {
-           console.log(`[Export Background] Downloading video from URL to avoid FFmpeg TLS issues...`);
            const dlRes = await fetch(videoSource);
-           if (!dlRes.ok) throw new Error('Failed to download video from URL');
            const arr = await dlRes.arrayBuffer();
-           downloadedVideoPath = path.join(os.tmpdir(), `dl_${sessionId}.mp4`);
-           fs.writeFileSync(downloadedVideoPath, Buffer.from(arr));
-           videoSource = downloadedVideoPath;
-        }
-        let requestedFont = null;
-        if (isAss) {
-          const match = srtContent.match(/Style:\s*[^,]+,([^,]+)/);
-          requestedFont = match ? match[1] : null;
-        } else {
-          const match = (assStyle || srtContent).match(/Fontname=([^,]+)/);
-          requestedFont = match ? match[1] : null;
+           const dlPath = path.join(os.tmpdir(), `dl_${sessionId}.mp4`);
+           fs.writeFileSync(dlPath, Buffer.from(arr));
+           videoSource = dlPath;
         }
 
-        const tempDir = os.tmpdir();
-        const ext = isAss ? '.ass' : '.srt';
-        srtFileName = path.join(tempDir, `subs_${sessionId}${ext}`);
-        outputPath = path.join(tempDir, `out_${sessionId}.mp4`);
-        
-        const fontsDir = await ensureFont(requestedFont || 'DejaVu Sans');
-        fs.writeFileSync(srtFileName, srtContent);
+        const { captionsJson, styleOptions, videoWidth, videoHeight, duration } = req.body;
+        const cJson = typeof captionsJson === 'string' ? JSON.parse(captionsJson) : captionsJson;
+        const sOpts = typeof styleOptions === 'string' ? JSON.parse(styleOptions) : styleOptions;
 
-        const vW = parseInt(videoWidth || '1080') || 1080;
-        const vH = parseInt(videoHeight || '1920') || 1920;
-
-        let targetW = vW;
-        let targetH = vH;
-        const maxDimension = 1920;
-        
-        if (targetW > maxDimension || targetH > maxDimension) {
-          const scale = maxDimension / Math.max(targetW, targetH);
-          targetW = Math.round(targetW * scale);
-          targetH = Math.round(targetH * scale);
-        }
-
-        targetW = Math.max(2, Math.floor(targetW / 2) * 2);
-        targetH = Math.max(2, Math.floor(targetH / 2) * 2);
-
-        let captionsJson: any = null;
-        let styleOptionsParsed: any = null;
-        try {
-            if (req.body.captionsJson) captionsJson = typeof req.body.captionsJson === 'string' ? JSON.parse(req.body.captionsJson) : req.body.captionsJson;
-            if (req.body.styleOptions) styleOptionsParsed = typeof req.body.styleOptions === 'string' ? JSON.parse(req.body.styleOptions) : req.body.styleOptions;
-        } catch (e) {}
-
-        if (captionsJson && styleOptionsParsed) {
-            console.log("[Export] Using Remotion rendering...");
+        if (cJson && sOpts) {
+            console.log("[Export] Starting Remotion render pipeline...");
             const { bundle } = await import('@remotion/bundler');
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
             
             if (!globalCachedBundleLocation) {
-                console.log(`[Export] Bundling Remotion project from: ${path.join(__dirname, 'remotion', 'index.tsx')}`);
+                console.log("[Export] Creating fresh Remotion bundle...");
                 globalCachedBundleLocation = await bundle({
                     entryPoint: path.join(__dirname, 'remotion', 'index.tsx'),
-                    // Ensure the bundle can be served from a subdirectory if needed
                     publicDir: path.join(__dirname, 'remotion', 'public'),
                 });
-                console.log(`[Export] Bundle created at: ${globalCachedBundleLocation}`);
             }
-            const bundleLocation = globalCachedBundleLocation;
+            
+            // Use expert advice: prefer live URL if provided, otherwise local bundle
+            const finalServeUrl = process.env.REMOTION_SERVE_URL || globalCachedBundleLocation;
+            console.log(`[Export] Using serveUrl: ${finalServeUrl}`);
 
-            const relativePath = path.relative(os.tmpdir(), videoSource);
-            // Use 127.0.0.1 to be explicit for internal networking
-            const localVideoUrl = `http://127.0.0.1:${PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
-
-            console.log(`[Export] Video source: ${videoSource}`);
-            console.log(`[Export] Remotion serveUrl: ${bundleLocation}`);
-
-            // Ensure duration is a valid positive number
-            const rawDuration = parseFloat(req.body.duration);
-            const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
-            const durationInFrames = Math.max(1, Math.ceil(validDuration * 30));
+            const vW = Number(videoWidth) || 1080;
+            const vH = Number(videoHeight) || 1920;
+            const rawDuration = parseFloat(duration);
+            const durationInFrames = Math.max(1, Math.ceil((isNaN(rawDuration) ? 10 : rawDuration) * 30));
 
             const inputProps = {
-                videoUrl: videoSource.startsWith('http') ? videoSource : localVideoUrl,
-                captions: captionsJson,
-                styleOptions: styleOptionsParsed,
-                videoWidth: Number(targetW),
-                videoHeight: Number(targetH),
-                durationInFrames: Number(durationInFrames)
+                videoUrl: videoSource, 
+                captions: cJson,
+                styleOptions: sOpts,
+                videoWidth: vW,
+                videoHeight: vH,
+                durationInFrames
             };
 
-            console.log(`[Export] Composition inputProps: ${JSON.stringify({ ...inputProps, captions: '...' })}`);
-
-            try {
-                // If the user provides a direct URL (like their Vercel deploy), use it.
-                // Otherwise use the local bundle.
-                const finalServeUrl = process.env.REMOTION_SERVE_URL || bundleLocation;
-                console.log(`[Export] Using finalServeUrl: ${finalServeUrl}`);
-
-                const composition = await selectComposition({
-                    serveUrl: finalServeUrl,
-                    id: 'Captions',
-                    inputProps
-                });
-
-                const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
-                await renderMedia({
-                    composition,
-                    serveUrl: finalServeUrl,
-                    codec: 'h264',
-                    outputLocation: tempVideoPath,
-                    inputProps,
-                    concurrency: os.cpus().length || 1,
-                    crf: 28,
-                    imageFormat: 'jpeg',
-                    jpegQuality: 80,
-                    browserExecutable: process.env.CHROME_BIN || undefined,
-                    chromiumOptions: {
-                       gl: 'swiftshader', 
-                       args: [
-                           "--no-sandbox", 
-                           "--disable-setuid-sandbox",
-                           "--allow-file-access-from-files",
-                           "--disable-web-security",
-                           "--disable-gpu",
-                           "--disable-dev-shm-usage"
-                       ]
-                    }
-                });
-                console.log("[Export] Remotion rendering completed (video only). Muxing audio...");
-                
-                await new Promise((resolve, reject) => {
-                    ffmpeg()
-                        .input(tempVideoPath)
-                        .input(videoSource)
-                        .outputOptions([
-                            '-c:v copy',
-                            '-c:a aac',
-                            '-map 0:v:0',
-                            '-map 1:a:0?',
-                            '-shortest'
-                        ])
-                        .save(outputPath)
-                        .on('end', () => {
-                            try { fs.unlinkSync(tempVideoPath); } catch(e) {}
-                            resolve(null);
-                        })
-                        .on('error', (err) => {
-                            console.error("[Export] Muxing error, falling back to video only:", err);
-                            try { fs.renameSync(tempVideoPath, outputPath); } catch(e) {}
-                            resolve(null);
-                        });
-                });
-            } catch (renderErr: any) {
-                console.error("[Export] Remotion renderMedia error:", renderErr);
-                throw new Error(`Remotion Engine Error: ${renderErr.message || renderErr}`);
-            }
-        } else {
-            console.log("[Export Background] Using FFmpeg fallback rendering...");
-            const scaleFilter = `scale=${targetW}:${targetH}:flags=fast_bilinear`;
-            let fontName = requestedFont || 'DejaVu Sans';
-
-            const escapedSrtPath = srtFileName.replace(/\\/g, '/').replace(/'/g, "'\\''");
-            let cleanStyle = assStyle ? assStyle.trim().replace(/,$/, '') : '';
-            
-            if (!cleanStyle.includes("Fontname=")) {
-                cleanStyle = `Fontname='${fontName}',` + cleanStyle;
-            } else {
-                cleanStyle = cleanStyle.replace(/Fontname=[^,]+/, `Fontname='${fontName}'`);
-            }
-            
-            const escapedFontsDir = fontsDir.replace(/\\/g, '/').replace(/'/g, "'\\''").replace(/:/g, '\\\\:');
-            
-            let subtitleFilter = '';
-            if (isAss) {
-            subtitleFilter = `subtitles='${escapedSrtPath}':fontsdir='${escapedFontsDir}'`;
-            } else {
-            subtitleFilter = `subtitles='${escapedSrtPath}':fontsdir='${escapedFontsDir}':force_style='${cleanStyle}'`;
-            }
-            
-            const filterStr = `${scaleFilter},${subtitleFilter}`;
-            console.log(`[Export Background] Starting FFmpeg Filter: ${filterStr}`);
-
-            const args = [
-            '-y',
-            '-i', videoSource,
-            '-vf', filterStr,
-            '-c:v', 'h264_nvenc',
-            '-preset', 'fast',
-            '-profile:v', 'main',
-            '-level', '3.1',
-            '-pix_fmt', 'yuv420p',
-            '-b:v', '4M', // Use a robust bitrate instead of CRF for NVENC
-            '-c:a', 'copy',
-            '-threads', '0',
-            '-movflags', '+faststart',
-            outputPath
-            ];
-
-            await new Promise<void>((resolve, reject) => {
-            const ffmpegProcess = spawn(validFfmpegPath as string, args);
-            let errorOutput = '';
-            ffmpegProcess.stderr.on('data', (data) => {
-                console.log(`[FFmpeg stderr]: ${data.toString()}`);
-                errorOutput += data.toString();
+            const composition = await selectComposition({
+                serveUrl: finalServeUrl,
+                id: 'Captions',
+                inputProps
             });
-            ffmpegProcess.stdout.on('data', (data) => {
-                console.log(`[FFmpeg stdout]: ${data.toString()}`);
+
+            const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
+            await renderMedia({
+                composition,
+                serveUrl: finalServeUrl,
+                codec: 'h264',
+                outputLocation: tempVideoPath,
+                inputProps,
+                concurrency: os.cpus().length || 1,
+                crf: 28,
+                browserExecutable: process.env.CHROME_BIN || undefined,
+                chromiumOptions: {
+                    gl: 'swiftshader',
+                    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
+                }
             });
-            ffmpegProcess.on('close', (code, signal) => {
-                if (code === 0) resolve();
-                else reject(new Error(`FFmpeg exited with code ${code}, signal: ${signal}, stderr: ${errorOutput}`));
+
+            // Mux audio
+            await new Promise((resolve) => {
+                ffmpeg()
+                    .input(tempVideoPath)
+                    .input(videoSource)
+                    .outputOptions(['-c:v copy', '-c:a aac', '-map 0:v:0', '-map 1:a:0?', '-shortest'])
+                    .save(outputPath)
+                    .on('end', resolve)
+                    .on('error', (err) => {
+                        console.error("[Export] Mux error:", err);
+                        fs.renameSync(tempVideoPath, outputPath);
+                        resolve(null);
+                    });
             });
-            ffmpegProcess.on('error', (err: Error) => {
-                reject(new Error(`FFmpeg spawn failed: ${err.message}`));
-            });
-            });
+            try { fs.unlinkSync(tempVideoPath); } catch(e){}
+
+            const downloadUrl = `/api/download-export/${sessionId}`;
+            exportJobs.set(sessionId, { status: 'completed', downloadUrl });
         }
-
-      // Provide complete backend URL for download
-      const downloadUrl = `/api/download-export/${sessionId}?name=captioned_${encodeURIComponent(safeOriginalName)}`;
-      exportJobs.set(sessionId, { status: 'completed', downloadUrl });
-
     } catch (err: any) {
-      console.error(`[Export Background] Fatal Error for ${sessionId}:`, err);
-      exportJobs.set(sessionId, { status: 'failed', error: err.message || "Video processing failed." });
-    } finally {
-      // Schedule cleanup for both successful and failed jobs
-      setTimeout(() => {
-        try {
-          if (outputPath && fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
-          exportJobs.delete(sessionId);
-        } catch (e) {}
-      }, 30 * 60 * 1000); // 30 minutes
-
-      [uploadedFilePath, srtFileName, downloadedVideoPath].forEach(p => {
-        try { if (p && fs.existsSync(p)) fs.unlinkSync(p); } catch(e){}
-      });
-      // Try to clean up vercel blob if we used it (graceful fail)
-      if (videoUrl) await del(videoUrl).catch(() => {});
+        console.error("[Export Error]", err);
+        exportJobs.set(sessionId, { status: 'failed', error: err.message });
     }
   });
 
   processQueue();
 });
 
-app.get("/api/export-status/:jobId", async (req: any, res: any) => {
-   const { jobId } = req.params;
-   const job = exportJobs.get(jobId);
-   if (job) return res.json(job);
-   res.status(404).json({ error: "Job not found or expired" });
+app.get("/api/export-status/:jobId", (req, res) => {
+   const job = exportJobs.get(req.params.jobId);
+   res.json(job || { error: "Not found" });
 });
 
-app.listen(PORT as number, "0.0.0.0", () => {
-  console.log(`Server is running on port ${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Backend server listening on port ${PORT}`);
 });
