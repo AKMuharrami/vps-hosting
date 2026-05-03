@@ -108,6 +108,7 @@ const exportJobs = new Map<string, { status: string; progress?: number; download
 
 const jobQueue: (() => Promise<void>)[] = [];
 let isQueueProcessing = false;
+let globalCachedBundleLocation: string | null = null;
 
 async function processQueue() {
   if (isQueueProcessing) return;
@@ -171,6 +172,10 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
   
   if (!srtContent) {
      return res.status(400).json({ error: "Missing subtitle parameters." });
+  }
+
+  if (jobQueue.length >= 30) {
+     return res.status(429).json({ error: "Server is currently at maximum capacity. Please try again in a few minutes." });
   }
 
   const sessionId = uuidv4().substring(0, 8);
@@ -240,9 +245,13 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
             const { bundle } = await import('@remotion/bundler');
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
             
-            const bundleLocation = await bundle({
-                entryPoint: path.join(__dirname, 'remotion', 'index.ts')
-            });
+            if (!globalCachedBundleLocation) {
+                console.log("[Export] Bundling Remotion project for the first time...");
+                globalCachedBundleLocation = await bundle({
+                    entryPoint: path.join(__dirname, 'remotion', 'index.ts')
+                });
+            }
+            const bundleLocation = globalCachedBundleLocation;
 
             const videoBasename = path.basename(videoSource);
             const relativePath = path.relative(os.tmpdir(), videoSource);
@@ -389,17 +398,18 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
       const downloadUrl = `/api/download-export/${sessionId}?name=captioned_${encodeURIComponent(safeOriginalName)}`;
       exportJobs.set(sessionId, { status: 'completed', downloadUrl });
 
+    } catch (err: any) {
+      console.error(`[Export Background] Fatal Error for ${sessionId}:`, err);
+      exportJobs.set(sessionId, { status: 'failed', error: err.message || "Video processing failed." });
+    } finally {
+      // Schedule cleanup for both successful and failed jobs
       setTimeout(() => {
         try {
           if (outputPath && fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
           exportJobs.delete(sessionId);
         } catch (e) {}
-      }, 30 * 60 * 1000);
+      }, 30 * 60 * 1000); // 30 minutes
 
-    } catch (err: any) {
-      console.error(`[Export Background] Fatal Error for ${sessionId}:`, err);
-      exportJobs.set(sessionId, { status: 'failed', error: err.message || "Video processing failed." });
-    } finally {
       [uploadedFilePath, srtFileName, downloadedVideoPath].forEach(p => {
         try { if (p && fs.existsSync(p)) fs.unlinkSync(p); } catch(e){}
       });
