@@ -126,6 +126,14 @@ async function processQueue() {
   isQueueProcessing = false;
 }
 
+app.use("/remotion-bundle", (req, res, next) => {
+  if (globalCachedBundleLocation) {
+    express.static(globalCachedBundleLocation)(req, res, next);
+  } else {
+    next();
+  }
+});
+
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
 
 app.get("/", (_req, res) => {
@@ -276,8 +284,9 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
             console.log(`[Export] Final Render Config: w=${targetW}, h=${targetH}, frames=${durationInFrames}`);
 
             try {
+                const expressServeUrl = `http://127.0.0.1:${PORT}/remotion-bundle`;
                 const composition = await selectComposition({
-                    serveUrl: bundleLocation,
+                    serveUrl: expressServeUrl,
                     id: 'Captions',
                     inputProps
                 });
@@ -285,7 +294,7 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                 const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
                 await renderMedia({
                     composition,
-                    serveUrl: bundleLocation,
+                    serveUrl: expressServeUrl,
                     codec: 'h264',
                     outputLocation: tempVideoPath,
                     inputProps,
