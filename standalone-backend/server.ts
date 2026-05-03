@@ -246,18 +246,22 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
             
             if (!globalCachedBundleLocation) {
-                console.log("[Export] Bundling Remotion project for the first time...");
+                console.log(`[Export] Bundling Remotion project from: ${path.join(__dirname, 'remotion', 'index.tsx')}`);
                 globalCachedBundleLocation = await bundle({
-                    entryPoint: path.join(__dirname, 'remotion', 'index.tsx')
+                    entryPoint: path.join(__dirname, 'remotion', 'index.tsx'),
+                    // Ensure the bundle can be served from a subdirectory if needed
+                    publicDir: path.join(__dirname, 'remotion', 'public'),
                 });
+                console.log(`[Export] Bundle created at: ${globalCachedBundleLocation}`);
             }
             const bundleLocation = globalCachedBundleLocation;
 
-            const videoBasename = path.basename(videoSource);
             const relativePath = path.relative(os.tmpdir(), videoSource);
+            // Use 127.0.0.1 to be explicit for internal networking
             const localVideoUrl = `http://127.0.0.1:${PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
-            console.log(`[Export] Local Video URL for Remotion: ${localVideoUrl}`);
+            console.log(`[Export] Video source: ${videoSource}`);
+            console.log(`[Export] Remotion serveUrl: ${bundleLocation}`);
 
             // Ensure duration is a valid positive number
             const rawDuration = parseFloat(req.body.duration);
@@ -273,11 +277,16 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                 durationInFrames: Number(durationInFrames)
             };
 
-            console.log(`[Export] Final Render Config: w=${targetW}, h=${targetH}, frames=${durationInFrames}`);
+            console.log(`[Export] Composition inputProps: ${JSON.stringify({ ...inputProps, captions: '...' })}`);
 
             try {
+                // If the user provides a direct URL (like their Vercel deploy), use it.
+                // Otherwise use the local bundle.
+                const finalServeUrl = process.env.REMOTION_SERVE_URL || bundleLocation;
+                console.log(`[Export] Using finalServeUrl: ${finalServeUrl}`);
+
                 const composition = await selectComposition({
-                    serveUrl: bundleLocation,
+                    serveUrl: finalServeUrl,
                     id: 'Captions',
                     inputProps
                 });
@@ -285,22 +294,24 @@ app.post("/api/export-video", upload.single('video'), async (req: any, res: any)
                 const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
                 await renderMedia({
                     composition,
-                    serveUrl: bundleLocation,
+                    serveUrl: finalServeUrl,
                     codec: 'h264',
                     outputLocation: tempVideoPath,
                     inputProps,
-                    concurrency: os.cpus().length || null,
-                    crf: 28, // higher crf = much faster, 28 is visually fine for social media
+                    concurrency: os.cpus().length || 1,
+                    crf: 28,
                     imageFormat: 'jpeg',
                     jpegQuality: 80,
+                    browserExecutable: process.env.CHROME_BIN || undefined,
                     chromiumOptions: {
-                       gl: 'swiftshader', // angle may fail or hang if there's no GPU at all on the VPS. swiftshader is robust CPU renderer.
+                       gl: 'swiftshader', 
                        args: [
                            "--no-sandbox", 
                            "--disable-setuid-sandbox",
                            "--allow-file-access-from-files",
                            "--disable-web-security",
-                           "--disable-gpu"
+                           "--disable-gpu",
+                           "--disable-dev-shm-usage"
                        ]
                     }
                 });
