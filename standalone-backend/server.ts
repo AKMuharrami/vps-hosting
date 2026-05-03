@@ -22,9 +22,12 @@ import { del } from "@vercel/blob";
 
 dotenv.config();
 
+// Save the port but unset it from process.env so Remotion doesn't try to use it internally
+const EXPRESS_PORT = process.env.PORT || 3000;
+delete process.env.PORT;
+
 // Initialize backend app
 const app = express();
-const PORT = process.env.PORT || 3000; // Match Docker Compose mapping
 
 // Debug logging for every request
 app.use((req, res, next) => {
@@ -101,6 +104,18 @@ app.use("/temp", (req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   next();
 }, express.static(os.tmpdir()));
+
+// New route to serve Remotion bundle
+app.use("/bundle", (req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  next();
+}, (req, res, next) => {
+  if (globalCachedBundleLocation) {
+    express.static(globalCachedBundleLocation)(req, res, next);
+  } else {
+    res.status(404).send("Bundle not ready");
+  }
+});
 
 // Set the native ffmpeg binary path for fluent-ffmpeg
 let validFfmpegPath = process.env.SYSTEM_FFMPEG_PATH || 'ffmpeg'; // Defaulting to system ffmpeg for h264_nvenc
@@ -299,11 +314,14 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 });
             }
             const bundleLocation = globalCachedBundleLocation;
+            // Use our Express server to serve the bundle to Chromium
+            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}/bundle`;
 
             const relativePath = path.relative(os.tmpdir(), videoSource);
             // Provide a local URL for the headless browser to fetch the video file
-            const localVideoUrl = `http://127.0.0.1:${PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
+            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
+            console.log(`[Export] Internal Bundle URL: ${serveUrl}`);
             console.log(`[Export] Internal Video URL: ${localVideoUrl}`);
 
             const rawDuration = parseFloat(req.body.duration);
@@ -311,7 +329,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             const durationInFrames = Math.max(1, Math.ceil(validDuration * 30));
 
             const inputProps = {
-                videoUrl: `file://${videoSource}`.replace(/\\/g, '/'),
+                videoUrl: localVideoUrl,
                 captions: captionsParams,
                 styleOptions: styleOptionsParsed,
                 videoWidth: Number(targetW),
@@ -319,7 +337,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 durationInFrames: Number(durationInFrames)
             };
 
-            const chromiumOptions = {
+            const chromiumOptions: any = {
                 gl: 'swiftshader',
                 args: [
                     "--no-sandbox", 
@@ -334,7 +352,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             };
 
             const composition = await selectComposition({
-                serveUrl: bundleLocation,
+                serveUrl,
                 id: 'Captions',
                 inputProps,
                 chromiumOptions,
@@ -346,7 +364,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
             await renderMedia({
                 composition,
-                serveUrl: bundleLocation,
+                serveUrl,
                 codec: 'h264',
                 imageFormat: 'jpeg',
                 outputLocation: tempVideoPath,
@@ -462,8 +480,6 @@ app.get("/api/export-status/:jobId", async (req: any, res: any) => {
    res.status(404).json({ error: "Job not found or expired" });
 });
 
-app.listen(PORT as number, "0.0.0.0", () => {
-  console.log(`Server is running on port ${PORT}`);
-  // Prevent Remotion's internal serve-static from conflicting with our Express port 3000
-  delete process.env.PORT; 
+app.listen(EXPRESS_PORT as number, "0.0.0.0", () => {
+  console.log(`Server is running on port ${EXPRESS_PORT}`);
 });
