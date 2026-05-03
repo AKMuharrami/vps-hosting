@@ -296,7 +296,8 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             await renderMedia({
                 composition,
                 serveUrl: bundleLocation,
-                codec: 'webm',
+                codec: 'vp8',
+                imageFormat: 'png',
                 outputLocation: tempWebmPath,
                 inputProps,
                 concurrency: os.cpus().length || null,
