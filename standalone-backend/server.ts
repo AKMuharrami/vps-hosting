@@ -243,8 +243,9 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 globalCachedBundleLocation = await bundle({
                     entryPoint: path.join(__dirname, 'remotion', 'index.tsx')
                 });
+                app.use('/remotion-bundle', express.static(globalCachedBundleLocation));
             }
-            const bundleLocation = globalCachedBundleLocation;
+            const bundleLocation = `http://127.0.0.1:${PORT}/remotion-bundle`;
 
             const relativePath = path.relative(os.tmpdir(), videoSource);
             // Provide a local URL for the headless browser to fetch the video file
