@@ -109,6 +109,7 @@ const exportJobs = new Map<string, { status: string; progress?: number; download
 const jobQueue: (() => Promise<void>)[] = [];
 let isQueueProcessing = false;
 let globalCachedBundleLocation: string | null = null;
+let globalCachedBundlePort: number | null = null;
 
 async function processQueue() {
   if (isQueueProcessing) return;
@@ -243,20 +244,8 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 globalCachedBundleLocation = await bundle({
                     entryPoint: path.join(__dirname, 'remotion', 'index.tsx')
                 });
-                
-                // Serve the bundle on a dedicated, high port static server
-                // This ensures all absolute paths (like `/bundle.js`) resolve correctly for Remotion's Puppeteer.
-                const bundleApp = express();
-                bundleApp.use(cors());
-                bundleApp.use(express.static(globalCachedBundleLocation));
-                await new Promise<void>((resolve) => {
-                   bundleApp.listen(39485, '127.0.0.1', () => {
-                      console.log("[Export] Remotion bundle static server running on port 39485");
-                      resolve();
-                   });
-                });
             }
-            const bundleLocation = `http://127.0.0.1:39485`;
+            const bundleLocation = globalCachedBundleLocation;
 
             const relativePath = path.relative(os.tmpdir(), videoSource);
             // Provide a local URL for the headless browser to fetch the video file
@@ -277,10 +266,25 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 durationInFrames: Number(durationInFrames)
             };
 
+            const chromiumOptions = {
+                gl: 'swiftshader',
+                args: [
+                    "--no-sandbox", 
+                    "--disable-setuid-sandbox", 
+                    "--disable-gpu", 
+                    "--disable-web-security",
+                    "--disable-dev-shm-usage"
+                ]
+            };
+
             const composition = await selectComposition({
                 serveUrl: bundleLocation,
                 id: 'Captions',
-                inputProps
+                inputProps,
+                chromiumOptions,
+                onBrowserLog: (log) => {
+                    console.log(`[Browser] ${log.type}: ${log.text}`);
+                }
             });
 
             const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
@@ -294,9 +298,9 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 crf: 24, // High quality
                 imageFormat: 'jpeg',
                 jpegQuality: 85,
-                chromiumOptions: {
-                    gl: 'swiftshader',
-                    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-web-security"]
+                chromiumOptions,
+                onBrowserLog: (log) => {
+                    console.log(`[Browser] ${log.type}: ${log.text}`);
                 }
             });
             
