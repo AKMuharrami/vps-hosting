@@ -243,8 +243,17 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 globalCachedBundleLocation = await bundle({
                     entryPoint: path.join(__dirname, 'remotion', 'index.tsx')
                 });
+                
+                // Serve the bundle on a dedicated, high port static server
+                // This ensures all absolute paths (like `/bundle.js`) resolve correctly for Remotion's Puppeteer.
+                const bundleApp = express();
+                bundleApp.use(cors());
+                bundleApp.use(express.static(globalCachedBundleLocation));
+                bundleApp.listen(39485, '127.0.0.1', () => {
+                   console.log("[Export] Remotion bundle static server running on port 39485");
+                });
             }
-            const bundleLocation = globalCachedBundleLocation;
+            const bundleLocation = `http://127.0.0.1:39485`;
 
             const relativePath = path.relative(os.tmpdir(), videoSource);
             // Provide a local URL for the headless browser to fetch the video file

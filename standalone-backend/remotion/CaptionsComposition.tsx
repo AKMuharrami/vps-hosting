@@ -163,8 +163,12 @@ export const CaptionsComposition = ({
                     zIndex: 40
                 }}>
                     <span
-                        className="shadow-xl inline-block text-center px-4"
                         style={{
+                            display: 'inline-block',
+                            textAlign: 'center',
+                            paddingLeft: '1rem',
+                            paddingRight: '1rem',
+                            boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)',
                             fontFamily: displayFont,
                             fontSize: `${scaledFontSize}px`,
                             maxWidth: `${styleOptions?.containerWidth ?? 80}%`,
@@ -238,8 +242,8 @@ export const CaptionsComposition = ({
                                 return (
                                     <span
                                         key={i}
-                                        className="inline-block"
                                         style={{
+                                            display: 'inline-block',
                                             fontWeight: styleOptions?.fontWeight || 'normal',
                                             color: isHighlighted ? wordHighlightColor : undefined,
                                             transform: `scale(${wordScale})`,
