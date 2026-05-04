@@ -343,32 +343,20 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             }
             const bundleLocation = globalCachedBundleLocation!;
-            
-            // Best Practice: Use our own Express server to serve the bundle.
-            // This is more reliable than letting Remotion spin up a second server in a container.
-            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}/bundle/index.html`;
+            const absoluteBundlePath = path.resolve(bundleLocation);
+            const serveUrl = absoluteBundlePath;
 
-            // Use the internal Express server for video serving too.
+            // Use the internal Express server for video serving
             const relativePath = path.relative(os.tmpdir(), videoSource);
             const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
-            console.log(`[Export] Using internal bundle URL: ${serveUrl}`);
+            console.log(`[Export] Using internal bundle DIR: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
             console.log(`[Export] Video source exists on disk: ${fs.existsSync(videoSource)}`);
-
-            // Diagnostic: Check if Express can see its own bundle
-            try {
-                const response = await fetch(serveUrl, { method: 'HEAD' });
-                console.log(`[Export] Self-test bundle connectivity: ${response.status} ${response.statusText}`);
-            } catch (err: any) {
-                console.warn(`[Export] Self-test warning: Could not reach internal URL ${serveUrl}: ${err.message}`);
-            }
+            console.log(`[Export] Bundle dir exists: ${fs.existsSync(absoluteBundlePath)}`);
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
-
-            // Give the filesystem a moment to settle after bundling
-            await new Promise(resolve => setTimeout(resolve, 1000));
 
             const durationInFrames = Math.max(1, Math.ceil(validDuration * 30));
 
@@ -395,12 +383,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--allow-file-access-from-files",
                     "--allow-file-access",
                     "--autoplay-policy=no-user-gesture-required",
-                    "--disable-background-networking",
-                    "--disable-default-apps",
-                    "--disable-extensions",
-                    "--disable-sync",
                     "--hide-scrollbars",
-                    "--metrics-recording-only",
                     "--mute-audio",
                     "--no-first-run",
                     "--safebrowsing-disable-auto-update",
@@ -408,8 +391,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--ignore-ssl-errors",
                     "--ignore-certificate-errors-spki-list",
                     "--disable-features=IsolateOrigins,site-per-process",
-                    "--disable-site-isolation-trials",
-                    "--host-resolver-rules=MAP * 127.0.0.1"
+                    "--disable-site-isolation-trials"
                 ]
             };
 
