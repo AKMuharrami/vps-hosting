@@ -325,8 +325,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             if (!globalCachedBundleLocation) {
                 console.log("[Export] Bundling Remotion project... this might take a minute on first run.");
                 globalCachedBundleLocation = await bundle({
-                    entryPoint: path.join(__dirname, 'remotion', 'index.tsx'),
-                    publicPath: "/bundle/"
+                    entryPoint: path.join(__dirname, 'remotion', 'index.tsx')
                 });
                 console.log(`[Export] Bundle created at: ${globalCachedBundleLocation}`);
                 try {
@@ -337,19 +336,17 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             }
             const bundleLocation = globalCachedBundleLocation;
-            // Best Practice: Serve the bundle via our existing Express server.
-            // This avoids port conflict issues and ensures consistency.
-            // Explicitly use 127.0.0.1 to avoid 'localhost' resolution failures in container.
-            const bundleHost = `127.0.0.1:${EXPRESS_PORT}`;
-            const serveUrl = `http://${bundleHost}/bundle/index.html`;
+            // Use path directly. Remotion will start its own server on an available port (usually 3000).
+            // Since our Express server is on 3005/8080, there is no conflict.
+            const serveUrl = path.resolve(bundleLocation);
 
             const relativePath = path.relative(os.tmpdir(), videoSource);
-            // Provide a local URL for the headless browser to fetch the video file
-            const localVideoUrl = `http://${bundleHost}/temp/${relativePath.replace(/\\/g, '/')}`;
+            // Provide a local URL for the headless browser to fetch the video file from our Express server
+            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
-            console.log(`[Export] Using internal bundle URL: ${serveUrl}`);
+            console.log(`[Export] Using internal bundle path: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
-            console.log(`[Export] Current EXPRESS_PORT used for render: ${EXPRESS_PORT}`);
+            console.log(`[Export] Current EXPRESS_PORT for video serving: ${EXPRESS_PORT}`);
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
