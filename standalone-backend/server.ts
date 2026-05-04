@@ -322,16 +322,17 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             const { bundle } = await import('@remotion/bundler');
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
             
-            if (!globalCachedBundleLocation) {
-                if (!globalBundlePromise) {
+            if (!globalCachedBundleLocation || globalCachedBundleLocation.endsWith('index.html')) {
+                if (!globalBundlePromise || globalCachedBundleLocation?.endsWith('index.html')) {
                     globalBundlePromise = (async () => {
                         console.log("[Export] Bundling Remotion project... this might take a minute on first run.");
                         const location = await bundle({
                             entryPoint: path.join(__dirname, 'remotion', 'index.tsx'),
                             publicPath: ""
                         });
-                        globalCachedBundleLocation = location;
-                        return location;
+                        // Ensure we don't have index.html in the directory path
+                        globalCachedBundleLocation = location.replace(/\/index\.html$/, '');
+                        return globalCachedBundleLocation;
                     })();
                 }
                 try {
@@ -343,17 +344,25 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             }
             const bundleLocation = globalCachedBundleLocation!;
             
-            // Best Practice: Pass the absolute directory location. 
-            // @remotion/renderer will start a local server on a random port.
-            const serveUrl = path.resolve(bundleLocation);
+            // Best Practice: Use our own Express server to serve the bundle.
+            // This is more reliable than letting Remotion spin up a second server in a container.
+            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}/bundle/index.html`;
 
-            // Use file:// for the video to avoid networking issues inside the container.
-            // This requires --allow-file-access-from-files and --disable-web-security in Chromium.
-            const localVideoUrl = `file://${path.resolve(videoSource)}`;
+            // Use the internal Express server for video serving too.
+            const relativePath = path.relative(os.tmpdir(), videoSource);
+            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
-            console.log(`[Export] Using internal bundle location (dir): ${serveUrl}`);
-            console.log(`[Export] Using internal video file: ${localVideoUrl}`);
-            console.log(`[Export] Video source exists: ${fs.existsSync(videoSource)}`);
+            console.log(`[Export] Using internal bundle URL: ${serveUrl}`);
+            console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
+            console.log(`[Export] Video source exists on disk: ${fs.existsSync(videoSource)}`);
+
+            // Diagnostic: Check if Express can see its own bundle
+            try {
+                const response = await fetch(serveUrl, { method: 'HEAD' });
+                console.log(`[Export] Self-test bundle connectivity: ${response.status} ${response.statusText}`);
+            } catch (err: any) {
+                console.warn(`[Export] Self-test warning: Could not reach internal URL ${serveUrl}: ${err.message}`);
+            }
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
@@ -399,7 +408,8 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--ignore-ssl-errors",
                     "--ignore-certificate-errors-spki-list",
                     "--disable-features=IsolateOrigins,site-per-process",
-                    "--disable-site-isolation-trials"
+                    "--disable-site-isolation-trials",
+                    "--host-resolver-rules=MAP * 127.0.0.1"
                 ]
             };
 
