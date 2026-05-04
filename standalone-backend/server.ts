@@ -389,7 +389,10 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--ignore-ssl-errors",
                     "--ignore-certificate-errors-spki-list",
                     "--disable-features=IsolateOrigins,site-per-process",
-                    "--disable-site-isolation-trials"
+                    "--disable-site-isolation-trials",
+                    "--proxy-server='direct://'",
+                    "--proxy-bypass-list=*",
+                    "--host-resolver-rules=\"MAP localhost 127.0.0.1\""
                 ]
             };
 
