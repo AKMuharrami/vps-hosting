@@ -24,7 +24,12 @@ dotenv.config();
 
 // Initialize backend app
 const app = express();
-const EXPRESS_PORT = process.env.PORT || 3005;
+const EXPRESS_PORT = process.env.PORT || "3005";
+
+console.log(`[Init] Starting backend on port: ${EXPRESS_PORT}`);
+if (EXPRESS_PORT === "3000") {
+  console.warn("[Init] WARNING: Running on port 3000 might conflict with Remotion's internal browser server.");
+}
 
 // Prevent proxy loops if VAST_AI_URL is misconfigured to point to itself
 const isProxyMode = !!(process.env.VAST_AI_URL && 
@@ -200,7 +205,12 @@ async function processQueue() {
   isQueueProcessing = false;
 }
 
-app.get("/api/health", (_req, res) => res.json({ status: "ok", version: "1.0.5-folder-render" }));
+app.get("/api/health", (_req, res) => res.json({ 
+  status: "ok", 
+  version: "1.0.7-gpu-fix",
+  port: EXPRESS_PORT,
+  mode: isProxyMode ? "Middleman Proxy" : "GPU Worker"
+}));
 
 app.get("/", (_req, res) => {
   res.send(`
@@ -315,7 +325,8 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             if (!globalCachedBundleLocation) {
                 console.log("[Export] Bundling Remotion project... this might take a minute on first run.");
                 globalCachedBundleLocation = await bundle({
-                    entryPoint: path.join(__dirname, 'remotion', 'index.tsx')
+                    entryPoint: path.join(__dirname, 'remotion', 'index.tsx'),
+                    publicPath: "/bundle/"
                 });
                 console.log(`[Export] Bundle created at: ${globalCachedBundleLocation}`);
                 try {
@@ -326,17 +337,19 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             }
             const bundleLocation = globalCachedBundleLocation;
-            // Best Practice: Serve the bundle via our existing Express server on 3005.
-            // This avoids port 3000 resolution issues in headless Chromium.
-            // Explicitly use 127.0.0.1 to avoid 'localhost' resolution failures.
-            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}/bundle/index.html`;
+            // Best Practice: Serve the bundle via our existing Express server.
+            // This avoids port conflict issues and ensures consistency.
+            // Explicitly use 127.0.0.1 to avoid 'localhost' resolution failures in container.
+            const bundleHost = `127.0.0.1:${EXPRESS_PORT}`;
+            const serveUrl = `http://${bundleHost}/bundle/index.html`;
 
             const relativePath = path.relative(os.tmpdir(), videoSource);
             // Provide a local URL for the headless browser to fetch the video file
-            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
+            const localVideoUrl = `http://${bundleHost}/temp/${relativePath.replace(/\\/g, '/')}`;
 
             console.log(`[Export] Using internal bundle URL: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
+            console.log(`[Export] Current EXPRESS_PORT used for render: ${EXPRESS_PORT}`);
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
@@ -507,6 +520,6 @@ app.get("/api/export-status/:jobId", async (req: any, res: any) => {
    res.status(404).json({ error: "Job not found or expired" });
 });
 
-app.listen(EXPRESS_PORT as number, "0.0.0.0", () => {
+app.listen(Number(EXPRESS_PORT), "0.0.0.0", () => {
   console.log(`Server is running on port ${EXPRESS_PORT}`);
 });
