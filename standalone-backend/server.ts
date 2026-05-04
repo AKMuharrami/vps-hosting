@@ -26,6 +26,11 @@ dotenv.config();
 const app = express();
 const EXPRESS_PORT = process.env.PORT || 3005;
 
+// Prevent proxy loops if VAST_AI_URL is misconfigured to point to itself
+const isProxyMode = !!(process.env.VAST_AI_URL && 
+                   !process.env.VAST_AI_URL.includes("localhost") && 
+                   !process.env.VAST_AI_URL.includes("127.0.0.1"));
+
 // Debug logging for every request
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url} - IP: ${req.ip}`);
@@ -42,7 +47,7 @@ app.use(cors({
   allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control']
 }));
 
-if (process.env.VAST_AI_URL) {
+if (isProxyMode) {
   const vastUrl = process.env.VAST_AI_URL.replace(/\/$/, "");
   console.log(`[Proxy] VAST_AI_URL configured: ${vastUrl}. Acting as Middleman proxy.`);
   
@@ -321,20 +326,24 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             }
             const bundleLocation = globalCachedBundleLocation;
-            // Robust Fix: Use the folder path directly. 
-            // Since we moved the Express server to 3005, port 3000 is now free.
-            // Remotion will start its own server on 3000 without conflict.
-            const serveUrl = path.resolve(bundleLocation);
+            // Best Practice: Serve the bundle via our existing Express server on 3005.
+            // This avoids port 3000 resolution issues in headless Chromium.
+            // Explicitly use 127.0.0.1 to avoid 'localhost' resolution failures.
+            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}/bundle/index.html`;
 
-            console.log(`[Export] Using internal bundle folder: ${serveUrl}`);
-            console.log(`[Export] Video source for Puppeteer: ${videoSource}`);
+            const relativePath = path.relative(os.tmpdir(), videoSource);
+            // Provide a local URL for the headless browser to fetch the video file
+            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
+
+            console.log(`[Export] Using internal bundle URL: ${serveUrl}`);
+            console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
             const durationInFrames = Math.max(1, Math.ceil(validDuration * 30));
 
             const inputProps = {
-                videoUrl: `file://${videoSource}`.replace(/\\/g, '/'),
+                videoUrl: localVideoUrl,
                 captions: captionsParams,
                 styleOptions: styleOptionsParsed,
                 videoWidth: Number(targetW),
