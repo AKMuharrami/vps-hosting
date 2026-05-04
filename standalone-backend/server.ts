@@ -118,10 +118,9 @@ app.use("/temp", (req, res, next) => {
 // New route to serve Remotion bundle (Optional fallback)
 app.use("/bundle", (req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  next();
-}, (req, res, next) => {
   if (globalCachedBundleLocation) {
-    express.static(globalCachedBundleLocation)(req, res, next);
+    // We use a wrapper function so we can dynamically use the current bundle location if it updates
+    return express.static(globalCachedBundleLocation)(req, res, next);
   } else {
     res.status(404).send("Bundle not ready");
   }
@@ -338,16 +337,24 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             }
             const bundleLocation = globalCachedBundleLocation;
             // Best Practice: Serve the bundle via our existing Express server.
-            // Using localhost instead of 127.0.0.1 as it is more standard for internal container networking.
-            const serveUrl = `http://localhost:${EXPRESS_PORT}/bundle/index.html`;
+            // Explicitly use 127.0.0.1 to avoid 'localhost' resolution failures and ensures consistency.
+            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}/bundle/index.html`;
 
             const relativePath = path.relative(os.tmpdir(), videoSource);
             // Provide a local URL for the headless browser to fetch the video file from our Express server
-            const localVideoUrl = `http://localhost:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
+            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
             console.log(`[Export] Using internal bundle URL: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
             console.log(`[Export] Current EXPRESS_PORT for video serving: ${EXPRESS_PORT}`);
+
+            // Diagnostic check: verify internal URL is reachable from Node itself
+            try {
+                const diagRes = await fetch(serveUrl, { method: 'HEAD' });
+                console.log(`[Export] Internal URL Check: ${serveUrl} - Status: ${diagRes.status}`);
+            } catch (diagErr: any) {
+                console.warn(`[Export] WARNING: Internal URL ${serveUrl} not reachable from Node: ${diagErr.message}`);
+            }
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
@@ -387,7 +394,10 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--ignore-certificate-errors",
                     "--ignore-ssl-errors",
                     "--ignore-certificate-errors-spki-list",
-                    "--host-resolver-rules=MAP * 127.0.0.1"
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--disable-site-isolation-trials",
+                    "--proxy-server='direct://'",
+                    "--proxy-bypass-list=*"
                 ]
             };
 
