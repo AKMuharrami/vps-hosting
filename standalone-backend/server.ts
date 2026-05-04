@@ -187,6 +187,7 @@ const exportJobs = new Map<string, { status: string; progress?: number; download
 const jobQueue: (() => Promise<void>)[] = [];
 let isQueueProcessing = false;
 let globalCachedBundleLocation: string | null = null;
+let globalBundlePromise: Promise<string> | null = null;
 
 async function processQueue() {
   if (isQueueProcessing) return;
@@ -322,29 +323,37 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
             
             if (!globalCachedBundleLocation) {
-                console.log("[Export] Bundling Remotion project... this might take a minute on first run.");
-                globalCachedBundleLocation = await bundle({
-                    entryPoint: path.join(__dirname, 'remotion', 'index.tsx'),
-                    publicPath: ""
-                });
-                console.log(`[Export] Bundle created at: ${globalCachedBundleLocation}`);
+                if (!globalBundlePromise) {
+                    globalBundlePromise = (async () => {
+                        console.log("[Export] Bundling Remotion project... this might take a minute on first run.");
+                        const location = await bundle({
+                            entryPoint: path.join(__dirname, 'remotion', 'index.tsx'),
+                            publicPath: ""
+                        });
+                        globalCachedBundleLocation = location;
+                        return location;
+                    })();
+                }
                 try {
-                  const files = fs.readdirSync(globalCachedBundleLocation);
-                  console.log(`[Export] Bundle contents: ${files.join(', ')}`);
+                    await globalBundlePromise;
                 } catch (e) {
-                  console.error("[Export] Could not list bundle files:", e);
+                    globalBundlePromise = null;
+                    throw e;
                 }
             }
-            const bundleLocation = globalCachedBundleLocation;
-            // Robust check for internal path resolution
-            const bundleIndexPath = path.join(bundleLocation, 'index.html');
-            const serveUrl = `file://${bundleIndexPath}`;
+            const bundleLocation = globalCachedBundleLocation!;
+            
+            // Best Practice: Pass the absolute directory location. 
+            // @remotion/renderer will start a local server on a random port.
+            const serveUrl = path.resolve(bundleLocation);
 
+            // Use file:// for the video to avoid networking issues inside the container.
+            // This requires --allow-file-access-from-files and --disable-web-security in Chromium.
             const localVideoUrl = `file://${path.resolve(videoSource)}`;
 
-            console.log(`[Export] Using internal bundle file: ${serveUrl}`);
+            console.log(`[Export] Using internal bundle location (dir): ${serveUrl}`);
             console.log(`[Export] Using internal video file: ${localVideoUrl}`);
-            console.log(`[Export] Current EXPRESS_PORT for fallback: ${EXPRESS_PORT}`);
+            console.log(`[Export] Video source exists: ${fs.existsSync(videoSource)}`);
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
