@@ -341,17 +341,14 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             }
             const bundleLocation = globalCachedBundleLocation!;
             
-            // Pass the absolute HTTP URL to our existing Express server.
-            // Using 127.0.0.1 avoids IPv6 "localhost" resolution mismatches in Docker/VAST.
-            // Remotion renderer will automatically append '/index.html' if it isn't there,
-            // or just hit the server. We bypass Remotion's internal server this way!
-            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}`;
+            // We must use bundleLocation as serveUrl so Remotion spawns its own server internally
+            const serveUrl = bundleLocation;
 
             // Provide a local URL for the video file from our Express server using 127.0.0.1
             const relativePath = path.relative(os.tmpdir(), videoSource);
             const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
-            console.log(`[Export] Using Express HTTP URL for Remotion: ${serveUrl}`);
+            console.log(`[Export] Using bundle DIR for Remotion: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
             console.log(`[Export] Video source exists: ${fs.existsSync(videoSource)}`);
 
@@ -400,6 +397,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 id: 'Captions',
                 inputProps,
                 chromiumOptions,
+                timeoutInMilliseconds: 60000,
                 onBrowserLog: (log) => {
                     console.log(`[Browser] ${log.type}: ${log.text}`);
                 }
@@ -413,7 +411,8 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 imageFormat: 'jpeg',
                 outputLocation: tempVideoPath,
                 inputProps,
-                concurrency: os.cpus().length || null,
+                concurrency: 2, // Hardcode to 2 to avoid Chrome OOMs on large machines
+                timeoutInMilliseconds: 120000, // 2 minutes timeout just in case
                 chromiumOptions,
                 onBrowserLog: (log) => {
                     console.log(`[Browser] ${log.type}: ${log.text}`);
