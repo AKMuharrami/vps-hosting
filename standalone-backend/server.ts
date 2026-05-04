@@ -325,7 +325,8 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             if (!globalCachedBundleLocation) {
                 console.log("[Export] Bundling Remotion project... this might take a minute on first run.");
                 globalCachedBundleLocation = await bundle({
-                    entryPoint: path.join(__dirname, 'remotion', 'index.tsx')
+                    entryPoint: path.join(__dirname, 'remotion', 'index.tsx'),
+                    publicPath: "/bundle/"
                 });
                 console.log(`[Export] Bundle created at: ${globalCachedBundleLocation}`);
                 try {
@@ -336,15 +337,16 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             }
             const bundleLocation = globalCachedBundleLocation;
-            // Use path directly. Remotion will start its own server on an available port (usually 3000).
-            // Since our Express server is on 3005/8080, there is no conflict.
-            const serveUrl = path.resolve(bundleLocation);
+            // Best Practice: Serve the bundle via our existing Express server.
+            // This avoids port conflict issues and ensures consistency.
+            // Explicitly use 127.0.0.1 to avoid 'localhost' resolution failures in container.
+            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}/bundle/index.html`;
 
             const relativePath = path.relative(os.tmpdir(), videoSource);
             // Provide a local URL for the headless browser to fetch the video file from our Express server
             const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
-            console.log(`[Export] Using internal bundle path: ${serveUrl}`);
+            console.log(`[Export] Using internal bundle URL: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
             console.log(`[Export] Current EXPRESS_PORT for video serving: ${EXPRESS_PORT}`);
 
@@ -363,8 +365,9 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
 
             const chromiumOptions: any = {
                 executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-                headless: true,
+                headless: 'new',
                 args: [
+                    "--headless=new",
                     "--no-sandbox", 
                     "--disable-setuid-sandbox", 
                     "--disable-gpu", 
