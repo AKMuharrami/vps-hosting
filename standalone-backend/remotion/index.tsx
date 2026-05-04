@@ -14,7 +14,16 @@ export const RemotionRoot = () => {
         videoUrl: '',
         captions: [],
         styleOptions: {},
-        videoHeight: 1920
+        videoHeight: 1920,
+        videoWidth: 1080,
+        durationInFrames: 300
+      }}
+      calculateMetadata={({ props }) => {
+        return {
+          durationInFrames: props.durationInFrames || 300,
+          width: props.videoWidth || 1080,
+          height: props.videoHeight || 1920,
+        };
       }}
     />
   );
