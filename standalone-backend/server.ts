@@ -389,15 +389,16 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--ignore-ssl-errors",
                     "--ignore-certificate-errors-spki-list",
                     "--disable-features=IsolateOrigins,site-per-process",
-                    "--disable-site-isolation-trials",
-                    "--proxy-server='direct://'",
-                    "--proxy-bypass-list=*",
-                    "--host-resolver-rules=\"MAP localhost 127.0.0.1\""
+                    "--disable-site-isolation-trials"
                 ]
             };
 
+            const renderPort = 3030 + Math.floor(Math.random() * 100);
+            console.log(`[Export] Using explicit port ${renderPort} for Remotion server...`);
+
             const composition = await selectComposition({
                 serveUrl,
+                port: renderPort,
                 id: 'Captions',
                 inputProps,
                 chromiumOptions,
@@ -410,6 +411,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             await renderMedia({
                 composition,
                 serveUrl,
+                port: renderPort,
                 codec: 'h264',
                 imageFormat: 'jpeg',
                 outputLocation: tempVideoPath,
