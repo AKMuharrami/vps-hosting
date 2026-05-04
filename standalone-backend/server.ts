@@ -341,15 +341,17 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             }
             const bundleLocation = globalCachedBundleLocation!;
             
-            // Pass the absolute path of the Webpack bundle to Remotion renderer.
-            // Remotion will handle spinning up its own internal HTTP server.
-            const serveUrl = bundleLocation;
+            // Pass the absolute HTTP URL to our existing Express server.
+            // Using 127.0.0.1 avoids IPv6 "localhost" resolution mismatches in Docker/VAST.
+            // Remotion renderer will automatically append '/index.html' if it isn't there,
+            // or just hit the server. We bypass Remotion's internal server this way!
+            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}`;
 
             // Provide a local URL for the video file from our Express server using 127.0.0.1
             const relativePath = path.relative(os.tmpdir(), videoSource);
             const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
-            console.log(`[Export] Using internal bundle DIR: ${serveUrl}`);
+            console.log(`[Export] Using Express HTTP URL for Remotion: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
             console.log(`[Export] Video source exists: ${fs.existsSync(videoSource)}`);
 
@@ -393,12 +395,8 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 ]
             };
 
-            const renderPort = 3030 + Math.floor(Math.random() * 100);
-            console.log(`[Export] Using explicit port ${renderPort} for Remotion server...`);
-
             const composition = await selectComposition({
                 serveUrl,
-                port: renderPort,
                 id: 'Captions',
                 inputProps,
                 chromiumOptions,
@@ -411,7 +409,6 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             await renderMedia({
                 composition,
                 serveUrl,
-                port: renderPort,
                 codec: 'h264',
                 imageFormat: 'jpeg',
                 outputLocation: tempVideoPath,
