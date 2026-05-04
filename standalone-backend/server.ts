@@ -192,7 +192,7 @@ async function processQueue() {
   isQueueProcessing = false;
 }
 
-app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+app.get("/api/health", (_req, res) => res.json({ status: "ok", version: "1.0.5-folder-render" }));
 
 app.get("/", (_req, res) => {
   res.send(`
@@ -318,22 +318,19 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             }
             const bundleLocation = globalCachedBundleLocation;
-            // Use our Express server to serve the bundle to Chromium
-            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}/bundle/index.html`;
+            // Best Practice: Pass the folder path directly to serveUrl. 
+            // Remotion will start a local server on a random port, avoiding port 3000 conflicts.
+            const serveUrl = path.resolve(bundleLocation);
 
-            const relativePath = path.relative(os.tmpdir(), videoSource);
-            // Provide a local URL for the headless browser to fetch the video file
-            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
-
-            console.log(`[Export] Internal Bundle URL: ${serveUrl}`);
-            console.log(`[Export] Internal Video URL: ${localVideoUrl}`);
+            console.log(`[Export] Using internal bundle folder: ${serveUrl}`);
+            console.log(`[Export] Using file:// protocol for video source: ${videoSource}`);
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
             const durationInFrames = Math.max(1, Math.ceil(validDuration * 30));
 
             const inputProps = {
-                videoUrl: localVideoUrl,
+                videoUrl: `file://${videoSource}`.replace(/\\/g, '/'),
                 captions: captionsParams,
                 styleOptions: styleOptionsParsed,
                 videoWidth: Number(targetW),
@@ -342,6 +339,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             };
 
             const chromiumOptions: any = {
+                executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
                 gl: 'swiftshader',
                 args: [
                     "--no-sandbox", 
