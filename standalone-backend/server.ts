@@ -115,15 +115,12 @@ app.use("/temp", (req, res, next) => {
   next();
 }, express.static(os.tmpdir()));
 
-// New route to serve Remotion bundle (Optional fallback)
-app.use("/bundle", (req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  if (globalCachedBundleLocation) {
-    // We use a wrapper function so we can dynamically use the current bundle location if it updates
+// Static route to serve Remotion bundle
+app.use("/", (req, res, next) => {
+  if (globalCachedBundleLocation && !req.url.startsWith('/api') && !req.url.startsWith('/temp')) {
     return express.static(globalCachedBundleLocation)(req, res, next);
-  } else {
-    res.status(404).send("Bundle not ready");
   }
+  next();
 });
 
 // Set the native ffmpeg binary path for fluent-ffmpeg
@@ -212,7 +209,7 @@ app.get("/api/health", (_req, res) => res.json({
   mode: isProxyMode ? "Middleman Proxy" : "GPU Worker"
 }));
 
-app.get("/", (_req, res) => {
+app.get("/api-status", (_req, res) => {
   res.send(`
     <html>
       <head><title>Mumantij AI Backend</title></head>
@@ -343,17 +340,18 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             }
             const bundleLocation = globalCachedBundleLocation!;
-            const absoluteBundlePath = path.resolve(bundleLocation);
-            const serveUrl = absoluteBundlePath;
+            
+            // Serve the bundle via our existing Express server on 127.0.0.1.
+            // Using 127.0.0.1 is more reliable than "localhost" in many container environments.
+            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}/index.html`;
 
-            // Use the internal Express server for video serving
+            // Provide a local URL for the video file from our Express server using 127.0.0.1
             const relativePath = path.relative(os.tmpdir(), videoSource);
             const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
-            console.log(`[Export] Using internal bundle DIR: ${serveUrl}`);
+            console.log(`[Export] Using internal bundle URL: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
-            console.log(`[Export] Video source exists on disk: ${fs.existsSync(videoSource)}`);
-            console.log(`[Export] Bundle dir exists: ${fs.existsSync(absoluteBundlePath)}`);
+            console.log(`[Export] Video source exists: ${fs.existsSync(videoSource)}`);
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
@@ -419,9 +417,9 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     console.log(`[Browser] ${log.type}: ${log.text}`);
                 }
             });
-            
+                
             console.log("[Export] Remotion rendering success. Muxing original audio with ffmpeg...");
-            
+                
             await new Promise((resolve, reject) => {
                 ffmpeg()
                     .input(tempVideoPath)
