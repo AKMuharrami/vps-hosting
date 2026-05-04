@@ -341,16 +341,15 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             }
             const bundleLocation = globalCachedBundleLocation!;
             
-            // Serve the bundle via our existing Express server on 127.0.0.1.
-            // Using 127.0.0.1 is more reliable than "localhost" in many container environments.
-            // Remotion renderer will automatically append '/index.html' to this URL.
-            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}`;
+            // Pass the absolute path of the Webpack bundle to Remotion renderer.
+            // Remotion will handle spinning up its own internal HTTP server.
+            const serveUrl = bundleLocation;
 
             // Provide a local URL for the video file from our Express server using 127.0.0.1
             const relativePath = path.relative(os.tmpdir(), videoSource);
             const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
-            console.log(`[Export] Using internal bundle URL: ${serveUrl}/index.html`);
+            console.log(`[Export] Using internal bundle DIR: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
             console.log(`[Export] Video source exists: ${fs.existsSync(videoSource)}`);
 
