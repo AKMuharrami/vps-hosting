@@ -24,7 +24,7 @@ dotenv.config();
 
 // Initialize backend app
 const app = express();
-const EXPRESS_PORT = process.env.PORT || 3000;
+const EXPRESS_PORT = process.env.PORT || 3005;
 
 // Debug logging for every request
 app.use((req, res, next) => {
@@ -51,6 +51,9 @@ if (process.env.VAST_AI_URL) {
     console.log(`[Proxy] Forwarding ${req.method} ${req.originalUrl || req.url} to ${targetUrl.toString()}`);
     
     const reqFn = targetUrl.protocol === 'https:' ? https.request : http.request;
+    
+    // For proxying, we might still want to call 3000 on the worker if the worker doesn't have Nginx
+    // but the worker app will now be on 3005. So we use the targetUrl provided by VAST_AI_URL.
     
     const options = {
       hostname: targetUrl.hostname,
@@ -102,7 +105,7 @@ app.use("/temp", (req, res, next) => {
   next();
 }, express.static(os.tmpdir()));
 
-// New route to serve Remotion bundle
+// New route to serve Remotion bundle (Optional fallback)
 app.use("/bundle", (req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   next();
@@ -318,12 +321,13 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             }
             const bundleLocation = globalCachedBundleLocation;
-            // Best Practice: Pass the folder path directly to serveUrl. 
-            // Remotion will start a local server on a random port, avoiding port 3000 conflicts.
+            // Robust Fix: Use the folder path directly. 
+            // Since we moved the Express server to 3005, port 3000 is now free.
+            // Remotion will start its own server on 3000 without conflict.
             const serveUrl = path.resolve(bundleLocation);
 
             console.log(`[Export] Using internal bundle folder: ${serveUrl}`);
-            console.log(`[Export] Using file:// protocol for video source: ${videoSource}`);
+            console.log(`[Export] Video source for Puppeteer: ${videoSource}`);
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
@@ -340,7 +344,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
 
             const chromiumOptions: any = {
                 executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-                gl: 'swiftshader',
+                headless: true,
                 args: [
                     "--no-sandbox", 
                     "--disable-setuid-sandbox", 
@@ -349,7 +353,19 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--disable-dev-shm-usage",
                     "--allow-file-access-from-files",
                     "--allow-file-access",
-                    "--autoplay-policy=no-user-gesture-required"
+                    "--autoplay-policy=no-user-gesture-required",
+                    "--disable-background-networking",
+                    "--disable-default-apps",
+                    "--disable-extensions",
+                    "--disable-sync",
+                    "--hide-scrollbars",
+                    "--metrics-recording-only",
+                    "--mute-audio",
+                    "--no-first-run",
+                    "--safebrowsing-disable-auto-update",
+                    "--ignore-certificate-errors",
+                    "--ignore-ssl-errors",
+                    "--ignore-certificate-errors-spki-list"
                 ]
             };
 
