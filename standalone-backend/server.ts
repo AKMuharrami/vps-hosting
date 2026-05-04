@@ -338,13 +338,12 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             }
             const bundleLocation = globalCachedBundleLocation;
             // Best Practice: Serve the bundle via our existing Express server.
-            // This avoids port conflict issues and ensures consistency.
-            // Explicitly use 127.0.0.1 to avoid 'localhost' resolution failures in container.
-            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}/bundle/index.html`;
+            // Using localhost instead of 127.0.0.1 as it is more standard for internal container networking.
+            const serveUrl = `http://localhost:${EXPRESS_PORT}/bundle/index.html`;
 
             const relativePath = path.relative(os.tmpdir(), videoSource);
             // Provide a local URL for the headless browser to fetch the video file from our Express server
-            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
+            const localVideoUrl = `http://localhost:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
             console.log(`[Export] Using internal bundle URL: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
@@ -387,7 +386,8 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--safebrowsing-disable-auto-update",
                     "--ignore-certificate-errors",
                     "--ignore-ssl-errors",
-                    "--ignore-certificate-errors-spki-list"
+                    "--ignore-certificate-errors-spki-list",
+                    "--host-resolver-rules=MAP * 127.0.0.1"
                 ]
             };
 
