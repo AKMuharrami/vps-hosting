@@ -398,8 +398,12 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 ]
             };
 
+            const renderPort = 3030 + Math.floor(Math.random() * 100);
+            console.log(`[Export] Using explicit port ${renderPort} for Remotion server...`);
+
             const composition = await selectComposition({
                 serveUrl,
+                port: renderPort,
                 id: 'Captions',
                 inputProps,
                 chromiumOptions,
@@ -415,12 +419,13 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             await renderMedia({
                 composition,
                 serveUrl,
+                port: renderPort,
                 codec: 'h264',
                 imageFormat: 'jpeg',
                 muted: true, // Huge performance optimization since we manually mux audio via ffmpeg later
                 outputLocation: tempVideoPath,
                 inputProps,
-                concurrency: Math.max(2, Math.floor(os.cpus().length / 2)), // Utilize more parallel workers while avoiding OOM
+                concurrency: 1, // Hardcode to 1 to avoid Chrome OOMs on large machines
                 timeoutInMilliseconds: 120000, // 2 minutes timeout just in case
                 chromiumOptions,
                 onBrowserLog: (log) => {
