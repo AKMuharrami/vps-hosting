@@ -305,10 +305,16 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
 
         let captionsParams: any = null;
         let styleOptionsParsed: any = null;
+        let captionPositionParsed: any = null;
         
         try {
             captionsParams = typeof req.body.captionsJson === 'string' ? JSON.parse(req.body.captionsJson) : req.body.captionsJson;
             styleOptionsParsed = typeof req.body.styleOptions === 'string' ? JSON.parse(req.body.styleOptions) : req.body.styleOptions;
+            captionPositionParsed = typeof req.body.captionPosition === 'string' ? JSON.parse(req.body.captionPosition) : req.body.captionPosition;
+            if (captionPositionParsed) {
+               styleOptionsParsed = styleOptionsParsed || {};
+               styleOptionsParsed.captionPosition = captionPositionParsed;
+            }
         } catch (e) {
             console.error("[Export] Failed to parse JSON params:", e);
         }
@@ -399,7 +405,9 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 chromiumOptions,
                 timeoutInMilliseconds: 60000,
                 onBrowserLog: (log) => {
-                    console.log(`[Browser] ${log.type}: ${log.text}`);
+                    if (log.type === 'error' || log.type === 'warning') {
+                        console.log(`[Browser] ${log.type}: ${log.text}`);
+                    }
                 }
             });
 
@@ -409,13 +417,16 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 serveUrl,
                 codec: 'h264',
                 imageFormat: 'jpeg',
+                muted: true, // Huge performance optimization since we manually mux audio via ffmpeg later
                 outputLocation: tempVideoPath,
                 inputProps,
-                concurrency: 2, // Hardcode to 2 to avoid Chrome OOMs on large machines
+                concurrency: Math.max(2, Math.floor(os.cpus().length / 2)), // Utilize more parallel workers while avoiding OOM
                 timeoutInMilliseconds: 120000, // 2 minutes timeout just in case
                 chromiumOptions,
                 onBrowserLog: (log) => {
-                    console.log(`[Browser] ${log.type}: ${log.text}`);
+                    if (log.type === 'error' || log.type === 'warning') {
+                        console.log(`[Browser] ${log.type}: ${log.text}`);
+                    }
                 }
             });
                 

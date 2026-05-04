@@ -13,13 +13,7 @@ export const CaptionsComposition = ({
     const currentTime = frame / fps;
 
     useEffect(() => {
-        console.log('[CaptionsComposition] Render Frame:', { 
-            frame, 
-            fps, 
-            currentTime, 
-            captionsLength: Array.isArray(captions) ? captions.length : 'not an array',
-            styleOptionsDefined: !!styleOptions
-        });
+        // Logging removed for performance
     }, [frame, fps, currentTime, captions, styleOptions]);
 
     const [handle] = useState(() => delayRender('Loading fonts...'));
@@ -140,8 +134,8 @@ export const CaptionsComposition = ({
         }
     }
     
-    const posX = styleOptions?.captionPosition?.x ?? 0;
-    const posY = styleOptions?.captionPosition?.y ?? 0;
+    const posX = (styleOptions?.captionPosition?.x ?? 0) * scaleRatio;
+    const posY = (styleOptions?.captionPosition?.y ?? 0) * scaleRatio;
 
     return (
         <AbsoluteFill style={{ backgroundColor: 'black' }}>
