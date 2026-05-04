@@ -325,7 +325,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 console.log("[Export] Bundling Remotion project... this might take a minute on first run.");
                 globalCachedBundleLocation = await bundle({
                     entryPoint: path.join(__dirname, 'remotion', 'index.tsx'),
-                    publicPath: "/bundle/"
+                    publicPath: ""
                 });
                 console.log(`[Export] Bundle created at: ${globalCachedBundleLocation}`);
                 try {
@@ -336,28 +336,22 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             }
             const bundleLocation = globalCachedBundleLocation;
-            // Best Practice: Serve the bundle via our existing Express server.
-            // Explicitly use 127.0.0.1 to avoid 'localhost' resolution failures and ensures consistency.
-            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}/bundle/index.html`;
+            // Robust check for internal path resolution
+            const bundleIndexPath = path.join(bundleLocation, 'index.html');
+            const serveUrl = `file://${bundleIndexPath}`;
 
-            const relativePath = path.relative(os.tmpdir(), videoSource);
-            // Provide a local URL for the headless browser to fetch the video file from our Express server
-            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
+            const localVideoUrl = `file://${path.resolve(videoSource)}`;
 
-            console.log(`[Export] Using internal bundle URL: ${serveUrl}`);
-            console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
-            console.log(`[Export] Current EXPRESS_PORT for video serving: ${EXPRESS_PORT}`);
-
-            // Diagnostic check: verify internal URL is reachable from Node itself
-            try {
-                const diagRes = await fetch(serveUrl, { method: 'HEAD' });
-                console.log(`[Export] Internal URL Check: ${serveUrl} - Status: ${diagRes.status}`);
-            } catch (diagErr: any) {
-                console.warn(`[Export] WARNING: Internal URL ${serveUrl} not reachable from Node: ${diagErr.message}`);
-            }
+            console.log(`[Export] Using internal bundle file: ${serveUrl}`);
+            console.log(`[Export] Using internal video file: ${localVideoUrl}`);
+            console.log(`[Export] Current EXPRESS_PORT for fallback: ${EXPRESS_PORT}`);
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
+
+            // Give the filesystem a moment to settle after bundling
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
             const durationInFrames = Math.max(1, Math.ceil(validDuration * 30));
 
             const inputProps = {
@@ -370,7 +364,8 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             };
 
             const chromiumOptions: any = {
-                executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+                executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || 
+                              (fs.existsSync('/usr/bin/chromium-browser') ? '/usr/bin/chromium-browser' : '/usr/bin/chromium'),
                 headless: 'new',
                 args: [
                     "--headless=new",
@@ -395,9 +390,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--ignore-ssl-errors",
                     "--ignore-certificate-errors-spki-list",
                     "--disable-features=IsolateOrigins,site-per-process",
-                    "--disable-site-isolation-trials",
-                    "--proxy-server='direct://'",
-                    "--proxy-bypass-list=*"
+                    "--disable-site-isolation-trials"
                 ]
             };
 
