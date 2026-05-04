@@ -341,22 +341,18 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             }
             const bundleLocation = globalCachedBundleLocation!;
             
-            // We use absolute file:// URL to bypass the local webserver entirely
-            // for the bundle, which is the most reliable method in a container environment.
-            // This avoids the "Visited... but got no response" error seen with localhost/127.0.0.1.
-            const bundleIndexPath = path.join(bundleLocation, 'index.html');
-            if (!fs.existsSync(bundleIndexPath)) {
-                throw new Error(`Remotion bundle index not found at ${bundleIndexPath}`);
-            }
-            const serveUrl = `file://${bundleIndexPath}`;
+            // Serve the bundle via our existing Express server on 127.0.0.1.
+            // Using 127.0.0.1 is more reliable than "localhost" in many container environments.
+            // Remotion renderer will automatically append '/index.html' to this URL.
+            const serveUrl = `http://127.0.0.1:${EXPRESS_PORT}`;
 
-            // Provide a local file:// URL for the video file
-            const localVideoUrl = `file://${path.resolve(videoSource)}`;
+            // Provide a local URL for the video file from our Express server using 127.0.0.1
+            const relativePath = path.relative(os.tmpdir(), videoSource);
+            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
 
-            console.log(`[Export] Using internal bundle FILE URL: ${serveUrl}`);
-            console.log(`[Export] Using internal video FILE URL: ${localVideoUrl}`);
+            console.log(`[Export] Using internal bundle URL: ${serveUrl}/index.html`);
+            console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
             console.log(`[Export] Video source exists: ${fs.existsSync(videoSource)}`);
-            console.log(`[Export] Bundle index exists: ${fs.existsSync(bundleIndexPath)}`);
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
@@ -394,9 +390,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--ignore-ssl-errors",
                     "--ignore-certificate-errors-spki-list",
                     "--disable-features=IsolateOrigins,site-per-process",
-                    "--disable-site-isolation-trials",
-                    "--proxy-server='direct://'", // Force direct connection for file:// access
-                    "--proxy-bypass-list=*"
+                    "--disable-site-isolation-trials"
                 ]
             };
 
