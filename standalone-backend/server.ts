@@ -320,8 +320,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
         }
 
         // If we have JSON, we use Remotion for the high-quality WYSIWYG experience
-        // We only use Remotion if it's NOT an ASS render, since ASS has native blazing fast ffmpeg support
-        if (captionsParams && styleOptionsParsed && !isAss) {
+        if (captionsParams && styleOptionsParsed) {
             console.log("[Export] Using Remotion rendering for WYSIWYG...");
             const { bundle } = await import('@remotion/bundler');
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
