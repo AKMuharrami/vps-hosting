@@ -502,11 +502,41 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 '-c:a', 'copy', '-movflags', '+faststart', outputPath
             ];
 
-            await new Promise<void>((resolve, reject) => {
-                const ffmpegProcess = spawn(validFfmpegPath as string, args);
-                ffmpegProcess.on('close', (code) => code === 0 ? resolve() : reject(new Error(`FFmpeg error code ${code}`)));
-                ffmpegProcess.on('error', (err) => reject(err));
-            });
+            try {
+                await new Promise<void>((resolve, reject) => {
+                    const ffmpegProcess = spawn(validFfmpegPath as string, args);
+                    
+                    let stderrLog = "";
+                    ffmpegProcess.stderr.on('data', (data) => {
+                        stderrLog += data.toString();
+                        console.log(`[FFmpeg] ${data}`);
+                    });
+
+                    ffmpegProcess.on('close', (code) => {
+                        if (code === 0) resolve();
+                        else reject(new Error(`FFmpeg error code ${code}: ${stderrLog}`));
+                    });
+                    ffmpegProcess.on('error', (err) => reject(err));
+                });
+            } catch (err: any) {
+                console.log("[Export] FFmpeg failed with nvenc, retrying with libx264. Error:", err.message);
+                const fallbackArgs = args.map(arg => arg === 'h264_nvenc' ? 'libx264' : arg);
+                await new Promise<void>((resolve, reject) => {
+                    const ffmpegProcess = spawn(validFfmpegPath as string, fallbackArgs);
+                    
+                    let stderrLog = "";
+                    ffmpegProcess.stderr.on('data', (data) => {
+                        stderrLog += data.toString();
+                        console.log(`[FFmpeg Fallback] ${data}`);
+                    });
+
+                    ffmpegProcess.on('close', (code) => {
+                        if (code === 0) resolve();
+                        else reject(new Error(`FFmpeg Fallback error code ${code}: ${stderrLog}`));
+                    });
+                    ffmpegProcess.on('error', (err) => reject(err));
+                });
+            }
         }
 
       const downloadUrl = `/api/download-export/${sessionId}?name=captioned_${encodeURIComponent(safeOriginalName)}`;
