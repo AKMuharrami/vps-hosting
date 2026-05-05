@@ -425,8 +425,8 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 muted: true, // Huge performance optimization since we manually mux audio via ffmpeg later
                 outputLocation: tempVideoPath,
                 inputProps,
-                concurrency: 1, // Hardcode to 1 to avoid Chrome OOMs on large machines
-                timeoutInMilliseconds: 120000, // 2 minutes timeout just in case
+                concurrency: null, // Let Remotion optimize concurrency based on available CPU cores
+                timeoutInMilliseconds: 240000, // 4 minutes timeout just in case
                 chromiumOptions,
                 onBrowserLog: (log) => {
                     if (log.type === 'error' || log.type === 'warning') {
