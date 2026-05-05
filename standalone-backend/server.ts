@@ -357,7 +357,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
 
             // Provide a local URL for the video file from our Express server using 127.0.0.1
             const relativePath = path.relative(os.tmpdir(), videoSource);
-            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
+            const localVideoUrl = "file://" + videoSource;
 
             console.log(`[Export] Using bundle DIR for Remotion: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
@@ -482,19 +482,21 @@ fi
                 fs.chmodSync(wrapperPath, 0o755);
             }
 
-            const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
+            const overlayPath = outputPath.replace('.mp4', '_overlay.mov');
+            const tempMuxPath = outputPath.replace('.mp4', '_temp.mp4');
             
-            // Set captionsOnly to false so Remotion renders the full video over JPEG (fastest)
-            styleOptionsParsed.captionsOnly = false;
+            // Set captionsOnly to true so we render transparent background ProRes
+            styleOptionsParsed.captionsOnly = true;
             
             await renderMedia({
                 composition,
                 serveUrl,
                 port: renderPort,
-                codec: 'h264',
-                imageFormat: 'jpeg',
+                codec: 'prores',
+                proresProfile: '4444',
+                imageFormat: 'png',
                 muted: true, // Huge performance optimization since we manually mux audio via ffmpeg later
-                outputLocation: tempVideoPath,
+                outputLocation: overlayPath,
                 inputProps: { ...inputProps, styleOptions: styleOptionsParsed },
                 concurrency: null, // Let Remotion optimize concurrency based on available CPU cores
                 timeoutInMilliseconds: 240000, // 4 minutes timeout just in case
@@ -510,13 +512,15 @@ fi
             console.log("[Export] Remotion rendering success. Muxing original audio with ffmpeg...");
                 
             await new Promise((resolve, reject) => {
-                const ffmpegProcess = spawn(validFfmpegPath as string, [
-                    '-y', '-i', tempVideoPath,
-                    '-i', videoSource,
-                    '-c:v', 'copy',
-                    '-map', '0:v:0',
-                    '-map', '1:a:0?',
-                    '-shortest', outputPath
+                const ffmpegProcess = spawn(wrapperPath as string, [
+                    '-y', '-i', videoSource,
+                    '-i', overlayPath,
+                    '-filter_complex', '[0:v][1:v]overlay=format=yuv420[outv]',
+                    '-map', '[outv]',
+                    '-map', '0:a?',
+                    '-c:v', 'libx264', '-preset', 'fast', '-pix_fmt', 'yuv420p',
+                    '-c:a', 'copy',
+                    '-shortest', tempMuxPath
                 ]);
                 
                 let stderrLog = "";
@@ -526,8 +530,9 @@ fi
                 });
 
                 ffmpegProcess.on('close', (code) => {
-                    try { fs.unlinkSync(tempVideoPath); } catch(e) {}
+                    try { fs.unlinkSync(overlayPath); } catch(e) {}
                     if (code === 0) {
+                        try { fs.renameSync(tempMuxPath, outputPath); } catch(e) {}
                         resolve(null);
                     } else {
                         console.error("[Export] Muxing error:", stderrLog);
