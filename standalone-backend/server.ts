@@ -116,11 +116,11 @@ app.use("/temp", (req, res, next) => {
 }, express.static(os.tmpdir()));
 
 // Static route to serve Remotion bundle
-app.use("/", (req, res, next) => {
-  if (globalCachedBundleLocation && !req.url.startsWith('/api') && !req.url.startsWith('/temp')) {
+app.get("/", (req, res, next) => {
+  if (globalCachedBundleLocation) {
     return express.static(globalCachedBundleLocation)(req, res, next);
   }
-  next();
+  res.send("<h1>Mumantij-ai Video Worker is Running! gpu is ready!</h1>");
 });
 
 // Set the native ffmpeg binary path for fluent-ffmpeg
