@@ -6,7 +6,8 @@ export const CaptionsComposition = ({
     videoUrl,
     captions,
     styleOptions,
-    videoHeight: propVideoHeight
+    videoHeight: propVideoHeight,
+    expressPort
 }: any) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
@@ -33,7 +34,8 @@ export const CaptionsComposition = ({
         'font-ibm': 'IBM Plex Sans Arabic',
     };
     
-    const displayFont = FONT_MAP[styleOptions.fontFamily] || styleOptions.fontFamily;
+    const baseFont = FONT_MAP[styleOptions.fontFamily] || styleOptions.fontFamily || 'Janna LT';
+    const displayFont = `${baseFont}, sans-serif`;
 
     useEffect(() => {
         if (!styleOptions.fontFamily) {
@@ -42,40 +44,42 @@ export const CaptionsComposition = ({
             return;
         }
 
-        if (displayFont.includes('Janna')) {
-            const font = new FontFace(displayFont, `url(https://hjrm8lbtnby37npy.public.blob.vercel-storage.com/Janna%20LT%20Regular.ttf)`, {
-                weight: 'normal'
-            });
-            font.load().then(() => {
-                document.fonts.add(font);
-                setFontLoaded(true);
-                continueRender(handle);
-            }).catch((err) => {
-                console.error('Failed to load font:', displayFont, err);
-                setFontLoaded(true);
-                continueRender(handle);
-            });
-        } else {
-            const familyName = displayFont.replace(/ /g, '+');
-            const weight = styleOptions.fontWeight || '400';
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = `https://fonts.googleapis.com/css2?family=${familyName}:wght@${weight}&display=swap`;
-            
-            link.onload = () => {
-                document.fonts.ready.then(() => {
+        const fontUrl = `http://127.0.0.1:${expressPort || 3005}/fonts/${encodeURIComponent(baseFont + '_v2.ttf')}`;
+        const font = new FontFace(baseFont, `url(${fontUrl})`, {
+            weight: styleOptions.fontWeight || 'normal'
+        });
+        
+        font.load().then(() => {
+            document.fonts.add(font);
+            setFontLoaded(true);
+            continueRender(handle);
+        }).catch((err) => {
+            console.error('Failed to load font from local server:', fontUrl, err);
+            // Fallback to previous logic if local fails
+            if (baseFont.includes('Janna')) {
+                const fbFont = new FontFace(baseFont, `url(https://hjrm8lbtnby37npy.public.blob.vercel-storage.com/Janna%20LT%20Regular.ttf)`, {
+                    weight: 'normal'
+                });
+                fbFont.load().then(() => {
+                    document.fonts.add(fbFont);
+                    setFontLoaded(true);
+                    continueRender(handle);
+                }).catch(() => {
                     setFontLoaded(true);
                     continueRender(handle);
                 });
-            };
-            link.onerror = () => {
-                console.error('Failed to load Google Font:', displayFont);
-                setFontLoaded(true);
-                continueRender(handle);
-            };
-            document.head.appendChild(link);
-        }
-    }, [displayFont, handle, styleOptions.fontWeight]);
+            } else {
+                const familyName = baseFont.replace(/ /g, '+');
+                const weight = styleOptions.fontWeight || '400';
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = `https://fonts.googleapis.com/css2?family=${familyName}:wght@${weight}&display=swap`;
+                link.onload = () => { document.fonts.ready.then(() => { setFontLoaded(true); continueRender(handle); }); };
+                link.onerror = () => { setFontLoaded(true); continueRender(handle); };
+                document.head.appendChild(link);
+            }
+        });
+    }, [baseFont, handle, styleOptions.fontWeight, expressPort]);
 
     // Apply inline style logic from App.tsx
     const shadowOpacity = styleOptions?.shadowOpacity ?? 80;

@@ -115,6 +115,11 @@ app.use("/temp", (req, res, next) => {
   next();
 }, express.static(os.tmpdir()));
 
+app.use("/fonts", (req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  next();
+}, express.static(path.join(os.tmpdir(), "fonts")));
+
 // Static route to serve Remotion bundle
 app.get("/", (req, res, next) => {
   if (globalCachedBundleLocation) {
@@ -319,10 +324,8 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             console.error("[Export] Failed to parse JSON params:", e);
         }
 
-        const isAssReq = String(req.body.isAss) === 'true';
-
-        // If we have JSON, we use Remotion for the high-quality WYSIWYG experience, UNLESS isAss is true
-        if (!isAssReq && captionsParams && styleOptionsParsed) {
+        // If we have JSON, we use Remotion for the high-quality WYSIWYG experience
+        if (captionsParams && styleOptionsParsed) {
             console.log("[Export] Using Remotion rendering for WYSIWYG...");
             const { bundle } = await import('@remotion/bundler');
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
@@ -365,13 +368,27 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
 
             const durationInFrames = Math.max(1, Math.ceil(validDuration * 30));
 
+            const fontName = styleOptionsParsed?.fontFamily || 'font-sans';
+            const FONT_MAP: Record<string, string> = {
+                'font-sans': 'Janna LT',
+                'font-cairo': 'Cairo',
+                'font-tajawal': 'Tajawal',
+                'font-serif': 'Amiri',
+                'font-roboto': 'Roboto',
+                'font-amiri': 'Amiri',
+                'font-ibm': 'IBM Plex Sans Arabic',
+            };
+            const actualFontName = FONT_MAP[fontName] || fontName;
+            await ensureFont(actualFontName);
+
             const inputProps = {
                 videoUrl: localVideoUrl,
                 captions: captionsParams,
                 styleOptions: styleOptionsParsed,
                 videoWidth: Number(targetW),
                 videoHeight: Number(targetH),
-                durationInFrames: Number(durationInFrames)
+                durationInFrames: Number(durationInFrames),
+                expressPort: Number(EXPRESS_PORT)
             };
 
             const chromiumOptions: any = {
@@ -421,6 +438,28 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             });
 
+            const wrapperPath = path.join(os.tmpdir(), "ffmpeg_nvenc_wrapper.sh");
+            if (!fs.existsSync(wrapperPath)) {
+                fs.writeFileSync(wrapperPath, `#!/bin/bash
+ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "libx264" ]; then
+        ARGS+=("h264_nvenc")
+        ARGS+=("-preset")
+        ARGS+=("fast")
+    elif [ "$arg" = "libx265" ]; then
+        ARGS+=("hevc_nvenc")
+    elif [ "$arg" = "-crf" ]; then
+        ARGS+=("-cq")
+    else
+        ARGS+=("$arg")
+    fi
+done
+exec \${SYSTEM_FFMPEG_PATH:-ffmpeg} "\${ARGS[@]}"
+`);
+                fs.chmodSync(wrapperPath, 0o755);
+            }
+
             const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
             await renderMedia({
                 composition,
@@ -433,6 +472,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 inputProps,
                 concurrency: null, // Let Remotion optimize concurrency based on available CPU cores
                 timeoutInMilliseconds: 240000, // 4 minutes timeout just in case
+                ffmpegExecutable: wrapperPath,
                 chromiumOptions,
                 onBrowserLog: (log) => {
                     if (log.type === 'error' || log.type === 'warning') {
