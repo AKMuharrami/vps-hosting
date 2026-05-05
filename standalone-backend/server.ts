@@ -355,13 +355,43 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             // We must use bundleLocation as serveUrl so Remotion spawns its own server internally
             const serveUrl = bundleLocation;
 
-            // Provide a local URL for the video file from our Express server using 127.0.0.1
-            const relativePath = path.relative(os.tmpdir(), videoSource);
-            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${relativePath.replace(/\\/g, '/')}`;
+            // Normalize video to a web-compatible H.264 format so Chromium can successfully play it
+            // This natively prevents "black screen" issues if the user uploaded HEVC or an unsupported format
+            const safeVideoSource = path.join(os.tmpdir(), `safe_${sessionId}.mp4`);
+            console.log(`[Export] Normalizing video format...`);
+            
+            await new Promise((resolve, reject) => {
+                const transcodeProc = spawn(validFfmpegPath as string, [
+                    '-y', '-i', videoSource,
+                    '-c:v', 'h264_nvenc', '-preset', 'fast', '-crf', '20',
+                    '-vf', `scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=black`,
+                    '-c:a', 'copy',
+                    safeVideoSource
+                ]);
+                
+                transcodeProc.on('close', (code) => {
+                    if (code === 0) {
+                        resolve(null);
+                    } else {
+                        console.log("[Export] NVENC encode failed. Falling back to ultrafast CPU fallback...");
+                        const cpuProc = spawn(validFfmpegPath as string, [
+                            '-y', '-i', videoSource,
+                            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '22',
+                            '-vf', `scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=black`,
+                            '-c:a', 'copy',
+                            safeVideoSource
+                        ]);
+                        cpuProc.on('close', resolve);
+                    }
+                });
+            });
+            console.log(`[Export] Video normalized.`);
+
+            // Provide a local URL for the video file using file protocol
+            const localVideoUrl = `file://${safeVideoSource.replace(/\\/g, '/')}`;
 
             console.log(`[Export] Using bundle DIR for Remotion: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
-            console.log(`[Export] Video source exists: ${fs.existsSync(videoSource)}`);
 
             const rawDuration = parseFloat(req.body.duration);
             const validDuration = (isNaN(rawDuration) || rawDuration <= 0) ? 10 : rawDuration;
