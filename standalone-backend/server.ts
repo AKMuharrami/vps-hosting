@@ -320,7 +320,8 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
         }
 
         // If we have JSON, we use Remotion for the high-quality WYSIWYG experience
-        if (captionsParams && styleOptionsParsed) {
+        // We only use Remotion if it's NOT an ASS render, since ASS has native blazing fast ffmpeg support
+        if (captionsParams && styleOptionsParsed && !isAss) {
             console.log("[Export] Using Remotion rendering for WYSIWYG...");
             const { bundle } = await import('@remotion/bundler');
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
@@ -373,6 +374,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             };
 
             const chromiumOptions: any = {
+                gl: 'egl',
                 executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || 
                               (fs.existsSync('/usr/bin/chromium-browser') ? '/usr/bin/chromium-browser' : '/usr/bin/chromium'),
                 headless: 'new',
@@ -380,7 +382,10 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--headless=new",
                     "--no-sandbox", 
                     "--disable-setuid-sandbox", 
-                    "--disable-gpu", 
+                    "--enable-gpu",
+                    "--enable-webgl",
+                    "--use-gl=egl",
+                    "--enable-accelerated-video-decode",
                     "--disable-web-security",
                     "--disable-dev-shm-usage",
                     "--allow-file-access-from-files",
