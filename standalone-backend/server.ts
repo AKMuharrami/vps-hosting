@@ -319,8 +319,10 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             console.error("[Export] Failed to parse JSON params:", e);
         }
 
-        // If we have JSON, we use Remotion for the high-quality WYSIWYG experience
-        if (captionsParams && styleOptionsParsed) {
+        const isAssReq = String(req.body.isAss) === 'true';
+
+        // If we have JSON, we use Remotion for the high-quality WYSIWYG experience, UNLESS isAss is true
+        if (!isAssReq && captionsParams && styleOptionsParsed) {
             console.log("[Export] Using Remotion rendering for WYSIWYG...");
             const { bundle } = await import('@remotion/bundler');
             const { renderMedia, selectComposition } = await import('@remotion/renderer');
