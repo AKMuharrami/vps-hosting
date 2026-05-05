@@ -384,7 +384,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             const inputProps = {
                 videoUrl: localVideoUrl,
                 captions: captionsParams,
-                styleOptions: styleOptionsParsed,
+                styleOptions: { ...styleOptionsParsed, captionsOnly: true },
                 videoWidth: Number(targetW),
                 videoHeight: Number(targetH),
                 durationInFrames: Number(durationInFrames),
@@ -438,41 +438,21 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             });
 
-            const wrapperPath = path.join(os.tmpdir(), "ffmpeg_nvenc_wrapper.sh");
-            if (!fs.existsSync(wrapperPath)) {
-                fs.writeFileSync(wrapperPath, `#!/bin/bash
-ARGS=()
-for arg in "$@"; do
-    if [ "$arg" = "libx264" ]; then
-        ARGS+=("h264_nvenc")
-        ARGS+=("-preset")
-        ARGS+=("fast")
-    elif [ "$arg" = "libx265" ]; then
-        ARGS+=("hevc_nvenc")
-    elif [ "$arg" = "-crf" ]; then
-        ARGS+=("-cq")
-    else
-        ARGS+=("$arg")
-    fi
-done
-exec \${SYSTEM_FFMPEG_PATH:-ffmpeg} "\${ARGS[@]}"
-`);
-                fs.chmodSync(wrapperPath, 0o755);
-            }
-
-            const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
+            const overlayPath = outputPath.replace('.mp4', '_overlay.mov');
+            const tempMuxPath = outputPath.replace('.mp4', '_final_temp.mp4');
+            
             await renderMedia({
                 composition,
                 serveUrl,
                 port: renderPort,
-                codec: 'h264',
-                imageFormat: 'jpeg',
+                codec: 'prores',
+                proresProfile: '4444',
+                imageFormat: 'png',
                 muted: true, // Huge performance optimization since we manually mux audio via ffmpeg later
-                outputLocation: tempVideoPath,
+                outputLocation: overlayPath,
                 inputProps,
                 concurrency: null, // Let Remotion optimize concurrency based on available CPU cores
                 timeoutInMilliseconds: 240000, // 4 minutes timeout just in case
-                ffmpegExecutable: wrapperPath,
                 chromiumOptions,
                 onBrowserLog: (log) => {
                     if (log.type === 'error' || log.type === 'warning') {
@@ -481,28 +461,55 @@ exec \${SYSTEM_FFMPEG_PATH:-ffmpeg} "\${ARGS[@]}"
                 }
             });
                 
-            console.log("[Export] Remotion rendering success. Muxing original audio with ffmpeg...");
+            console.log("[Export] Remotion rendering success. Muxing overlay with NVENC...");
                 
             await new Promise((resolve, reject) => {
-                ffmpeg()
-                    .input(tempVideoPath)
-                    .input(videoSource)
-                    .outputOptions([
-                        '-c:v copy',
-                        '-map 0:v:0',
-                        '-map 1:a:0?',
-                        '-shortest'
-                    ])
-                    .save(outputPath)
-                    .on('end', () => {
-                        try { fs.unlinkSync(tempVideoPath); } catch(e) {}
+                const args = [
+                    '-y', '-i', videoSource,
+                    '-i', overlayPath,
+                    '-filter_complex', '[0:v][1:v]overlay=format=auto[outv]',
+                    '-map', '[outv]', '-map', '0:a?',
+                    '-c:v', 'h264_nvenc', '-preset', 'fast', '-pix_fmt', 'yuv420p', '-b:v', '6M',
+                    '-c:a', 'copy', '-shortest', tempMuxPath
+                ];
+                
+                const ffmpegProcess = spawn(validFfmpegPath as string, args);
+                
+                let stderrLog = "";
+                ffmpegProcess.stderr.on('data', (data) => {
+                    stderrLog += data.toString();
+                    console.log(`[NVENC Muxing] ${data}`);
+                });
+
+                ffmpegProcess.on('close', (code) => {
+                    if (code === 0) {
+                        try { fs.renameSync(tempMuxPath, outputPath); } catch(e) {}
+                        try { fs.unlinkSync(overlayPath); } catch(e) {}
                         resolve(null);
-                    })
-                    .on('error', (err) => {
-                        console.error("[Export] Muxing error, outputting video only:", err);
-                        try { fs.renameSync(tempVideoPath, outputPath); } catch(e) {}
-                        resolve(null);
-                    });
+                    } else {
+                        console.log(`[NVENC Muxing] Failed, trying fallback CPU muxing. Log: ${stderrLog}`);
+                        // Fallback to CPU encoding
+                        const fallbackArgs = [
+                            '-y', '-i', videoSource,
+                            '-i', overlayPath,
+                            '-filter_complex', '[0:v][1:v]overlay=format=auto',
+                            '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
+                            '-c:a', 'copy', '-shortest', tempMuxPath
+                        ];
+                        const fallbackProcess = spawn(validFfmpegPath as string, fallbackArgs);
+                        fallbackProcess.on('close', (fCode) => {
+                             if (fCode === 0) {
+                                  try { fs.renameSync(tempMuxPath, outputPath); } catch(e) {}
+                                  try { fs.unlinkSync(overlayPath); } catch(e) {}
+                                  resolve(null);
+                             } else {
+                                  reject(new Error(`Fallback Failed. Error code ${fCode}`));
+                             }
+                        });
+                        fallbackProcess.on('error', reject);
+                    }
+                });
+                ffmpegProcess.on('error', reject);
             });
         } else {
             // FFmpeg Fallback (only used if JSON is missing but SRT exists)
