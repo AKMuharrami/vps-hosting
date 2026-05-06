@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { AbsoluteFill, useCurrentFrame, useVideoConfig, Video, delayRender, continueRender, spring, interpolate } from 'remotion';
+import { AbsoluteFill, useCurrentFrame, useVideoConfig, Video, OffthreadVideo, delayRender, continueRender, spring, interpolate } from 'remotion';
 
 // Simple implementation simulating the App.tsx styles
 export const CaptionsComposition = ({
@@ -144,12 +144,10 @@ export const CaptionsComposition = ({
     return (
         <AbsoluteFill style={{ backgroundColor: styleOptions?.captionsOnly ? 'transparent' : 'black' }}>
             {!styleOptions?.captionsOnly && (
-                <Video 
+                <OffthreadVideo 
                     src={videoUrl} 
                     style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
                     muted
-                    crossOrigin="anonymous"
-                    onError={(e) => console.error('Video error:', e)}
                 />
             )}
             
