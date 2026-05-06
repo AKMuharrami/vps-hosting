@@ -497,7 +497,7 @@ fi
             // Render the full composition with the video in the background natively.
             // Using OffthreadVideo skips all Chromium limitations natively.
             
-            console.log(\`[Export] Starting full Remotion render using NVENC. CPU Cores: \${cpuCount}, Concurrency: \${optimalConcurrency}\`);
+            console.log(`[Export] Starting full Remotion render using NVENC. CPU Cores: ${cpuCount}, Concurrency: ${optimalConcurrency}`);
             await renderMedia({
                 composition,
                 serveUrl,
