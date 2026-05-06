@@ -439,14 +439,16 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             });
 
             const wrapperPath = path.join(os.tmpdir(), "ffmpeg_nvenc_wrapper.sh");
-            if (!fs.existsSync(wrapperPath)) {
-                fs.writeFileSync(wrapperPath, `#!/bin/bash
+            process.env.REMOTION_FFMPEG_EXECUTABLE = wrapperPath;
+            fs.writeFileSync(wrapperPath, `#!/bin/bash
 ARGS_NVENC=()
 for arg in "$@"; do
     if [ "$arg" = "libx264" ]; then
         ARGS_NVENC+=("h264_nvenc")
         ARGS_NVENC+=("-preset")
-        ARGS_NVENC+=("fast")
+        ARGS_NVENC+=("p1")
+        ARGS_NVENC+=("-tune")
+        ARGS_NVENC+=("hq")
     elif [ "$arg" = "-preset" ] || [ "$arg" = "medium" ] || [ "$arg" = "fast" ]; then
         # Skip original preset args since we handle them
         continue
@@ -479,8 +481,7 @@ if [ $? -ne 0 ]; then
     exec \${SYSTEM_FFMPEG_PATH:-ffmpeg} "\${ARGS_CPU[@]}"
 fi
 `);
-                fs.chmodSync(wrapperPath, 0o755);
-            }
+            fs.chmodSync(wrapperPath, 0o755);
 
             const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
             
@@ -494,12 +495,12 @@ fi
                 port: renderPort,
                 codec: 'h264',
                 imageFormat: 'jpeg',
+                jpegQuality: 80,
                 muted: true, // Huge performance optimization: Remotion only encodes video, we copy audio next natively
                 outputLocation: tempVideoPath,
                 inputProps: { ...inputProps, styleOptions: styleOptionsParsed },
                 concurrency: null, // Let Remotion optimize concurrency based on available CPU cores
                 timeoutInMilliseconds: 240000,
-                ffmpegExecutable: wrapperPath, // This will intercept libx264 and use h264_nvenc
                 chromiumOptions,
                 onBrowserLog: (log) => {
                     if (log.type === 'error' || log.type === 'warning') {
