@@ -442,16 +442,20 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
             process.env.REMOTION_FFMPEG_EXECUTABLE = wrapperPath;
             fs.writeFileSync(wrapperPath, `#!/bin/bash
 ARGS_NVENC=()
+SKIP_NEXT=0
 for arg in "$@"; do
+    if [ "$SKIP_NEXT" = "1" ]; then
+        SKIP_NEXT=0
+        continue
+    fi
     if [ "$arg" = "libx264" ]; then
         ARGS_NVENC+=("h264_nvenc")
-        ARGS_NVENC+=("-preset")
-        ARGS_NVENC+=("p1")
-        ARGS_NVENC+=("-tune")
-        ARGS_NVENC+=("hq")
-    elif [ "$arg" = "-preset" ] || [ "$arg" = "medium" ] || [ "$arg" = "fast" ]; then
-        # Skip original preset args since we handle them
-        continue
+        ARGS_NVENC+=("-preset" "p6")
+        ARGS_NVENC+=("-tune" "hq")
+        ARGS_NVENC+=("-spatial-aq" "1")
+        ARGS_NVENC+=("-temporal-aq" "1")
+    elif [ "$arg" = "-preset" ]; then
+        SKIP_NEXT=1
     elif [ "$arg" = "-crf" ]; then
         ARGS_NVENC+=("-cq")
     else
@@ -483,26 +487,29 @@ fi
 `);
             fs.chmodSync(wrapperPath, 0o755);
 
-            const overlayVideoPath = outputPath.replace('.mp4', '_overlay.mov');
-            const tempMuxPath = outputPath.replace('.mp4', '_temp.mp4');
+            const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
+             
+            // Determine optimal concurrency for Threadripper 3975WX (32-cores / 64-threads)
+            // Using all 64 threads is possible with 100GB of RAM!
+            const cpuCount = os.cpus().length;
+            const optimalConcurrency = cpuCount > 0 ? cpuCount : null;
             
-            // Render ONLY the captions with a transparent background using ProRes 4444.
-            // This skips Chromium processing the heavy video, rendering captions at 100+ fps natively!
-            styleOptionsParsed.captionsOnly = true;
+            // Render the full composition with the video in the background natively.
+            // Using OffthreadVideo skips all Chromium limitations natively.
             
-            console.log(`[Export] Starting lightning-fast Remotion transparent ProRes render...`);
+            console.log(\`[Export] Starting full Remotion render using NVENC. CPU Cores: \${cpuCount}, Concurrency: \${optimalConcurrency}\`);
             await renderMedia({
                 composition,
                 serveUrl,
                 port: renderPort,
-                codec: 'prores',
-                proResProfile: '4444',
-                imageFormat: 'png',
-                muted: true, // We don't need audio from the Remotion overlay
-                outputLocation: overlayVideoPath,
+                codec: 'h264',
+                imageFormat: 'jpeg',
+                jpegQuality: 90,
+                muted: true, // Huge performance optimization: Remotion only encodes video, we copy audio next natively
+                outputLocation: tempVideoPath,
                 inputProps: { ...inputProps, styleOptions: styleOptionsParsed },
-                concurrency: null, 
-                timeoutInMilliseconds: 120000,
+                concurrency: optimalConcurrency, // Force maximum concurrency
+                timeoutInMilliseconds: 240000,
                 chromiumOptions,
                 onBrowserLog: (log) => {
                     if (log.type === 'error' || log.type === 'warning') {
@@ -511,57 +518,33 @@ fi
                 }
             });
                 
-            console.log("[Export] Remotion ProRes success. Hardware-accelerated GPU overlaying captions onto video...");
+            console.log("[Export] Remotion rendering success. Muxing original audio with ffmpeg natively...");
                 
             await new Promise((resolve, reject) => {
                 const ffmpegProcess = spawn(validFfmpegPath as string, [
                     '-y', 
+                    '-i', tempVideoPath,
                     '-i', videoSource,
-                    '-i', overlayVideoPath,
-                    '-filter_complex', '[0:v][1:v]overlay=format=yuv420p[outv]',
-                    '-map', '[outv]',
-                    '-map', '0:a?',
-                    '-c:v', 'h264_nvenc', '-preset', 'p2', '-crf', '22',
+                    '-c:v', 'copy',
+                    '-map', '0:v:0',
+                    '-map', '1:a:0?',
                     '-c:a', 'copy',
-                    '-shortest', tempMuxPath
+                    '-shortest', outputPath
                 ]);
                 
                 let stderrLog = "";
                 ffmpegProcess.stderr.on('data', (data) => {
                     stderrLog += data.toString();
+                    console.log(`[Audio Muxing] ${data}`);
                 });
 
                 ffmpegProcess.on('close', (code) => {
-                    try { fs.unlinkSync(overlayVideoPath); } catch(e) {}
+                    try { fs.unlinkSync(tempVideoPath); } catch(e) {}
                     if (code === 0) {
-                        try { fs.renameSync(tempMuxPath, outputPath); } catch(e) {}
                         resolve(null);
                     } else {
-                        console.log("[Export] NVENC overlay failed. Falling back to ultrafast CPU fallback...");
-                        const cpuProc = spawn(validFfmpegPath as string, [
-                            '-y', 
-                            '-i', videoSource,
-                            '-i', overlayVideoPath,
-                            '-filter_complex', '[0:v][1:v]overlay=format=yuv420p[outv]',
-                            '-map', '[outv]',
-                            '-map', '0:a?',
-                            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
-                            '-c:a', 'copy',
-                            '-shortest', tempMuxPath
-                        ]);
-                        
-                        let cpuErr = "";
-                        cpuProc.stderr.on('data', d => cpuErr += d);
-                        cpuProc.on('close', (cCode) => {
-                            try { fs.unlinkSync(overlayVideoPath); } catch(e) {}
-                            if (cCode === 0) {
-                                try { fs.renameSync(tempMuxPath, outputPath); } catch(e) {}
-                                resolve(null);
-                            } else {
-                                console.error("[Export] CPU Muxing error:", cpuErr);
-                                reject(new Error(`CPU Video Muxing failed: ${cCode}`));
-                            }
-                        });
+                        console.error("[Export] Audio Muxing error:", stderrLog);
+                        reject(new Error(`Audio Muxing failed: ${code}`));
                     }
                 });
                 ffmpegProcess.on('error', reject);
@@ -601,7 +584,7 @@ fi
             const args = [
                 '-y', '-i', videoSource,
                 '-vf', `${scaleFilter},${subtitleFilter}`,
-                '-c:v', 'h264_nvenc', '-preset', 'fast', '-pix_fmt', 'yuv420p', '-b:v', '6M',
+                '-c:v', 'h264_nvenc', '-preset', 'p6', '-tune', 'hq', '-spatial-aq', '1', '-temporal-aq', '1', '-pix_fmt', 'yuv420p', '-b:v', '6M',
                 '-c:a', 'copy', '-movflags', '+faststart', outputPath
             ];
 
