@@ -148,6 +148,7 @@ export const CaptionsComposition = ({
                     src={videoUrl} 
                     style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
                     muted
+                    crossOrigin="anonymous"
                     onError={(e) => console.error('Video error:', e)}
                 />
             )}

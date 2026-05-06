@@ -364,31 +364,42 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 const transcodeProc = spawn(validFfmpegPath as string, [
                     '-y', '-i', videoSource,
                     '-c:v', 'h264_nvenc', '-preset', 'fast', '-crf', '20',
+                    '-movflags', '+faststart',
                     '-vf', `scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=black`,
                     '-c:a', 'copy',
                     safeVideoSource
                 ]);
                 
+                let transcodeErr = "";
+                transcodeProc.stderr.on('data', d => transcodeErr += d);
+                
                 transcodeProc.on('close', (code) => {
                     if (code === 0) {
                         resolve(null);
                     } else {
-                        console.log("[Export] NVENC encode failed. Falling back to ultrafast CPU fallback...");
+                        console.log(`[Export] NVENC encode failed (code ${code}): ${transcodeErr}`);
+                        console.log("[Export] Falling back to ultrafast CPU fallback...");
                         const cpuProc = spawn(validFfmpegPath as string, [
                             '-y', '-i', videoSource,
                             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '22',
+                            '-movflags', '+faststart',
                             '-vf', `scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=black`,
                             '-c:a', 'copy',
                             safeVideoSource
                         ]);
-                        cpuProc.on('close', resolve);
+                        let cpuErr = "";
+                        cpuProc.stderr.on('data', d => cpuErr += d);
+                        cpuProc.on('close', (cCode) => {
+                            if (cCode !== 0) console.log(`[Export] CPU fallback failed (code ${cCode}): ${cpuErr}`);
+                            resolve(null);
+                        });
                     }
                 });
             });
             console.log(`[Export] Video normalized.`);
 
-            // Provide a local URL for the video file using file protocol
-            const localVideoUrl = `file://${safeVideoSource.replace(/\\/g, '/')}`;
+            // Provide a local URL for the video file using the Express server
+            const localVideoUrl = `http://127.0.0.1:${EXPRESS_PORT}/temp/${path.basename(safeVideoSource)}`;
 
             console.log(`[Export] Using bundle DIR for Remotion: ${serveUrl}`);
             console.log(`[Export] Using internal video URL: ${localVideoUrl}`);
