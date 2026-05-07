@@ -133,6 +133,76 @@ let validFfmpegPath = process.env.SYSTEM_FFMPEG_PATH || 'ffmpeg'; // Defaulting 
 ffmpeg.setFfmpegPath(validFfmpegPath as string);
 console.log(`[FFmpeg] Using binary at: ${validFfmpegPath}`);
 
+// --- NVENC WRAPPER SCRIPT INITIALIZATION ---
+// This is generated once at boot to be thread safe and support global GPU round robin logic across Remotion rendering jobs securely
+const wrapperPath = path.join(os.tmpdir(), "ffmpeg_nvenc_wrapper.sh");
+process.env.REMOTION_FFMPEG_EXECUTABLE = wrapperPath;
+
+const wrapperScript = `#!/bin/bash
+GPU_COUNT=${process.env.GPU_COUNT || 1}
+GPU_INDEX=0
+
+if [ "$GPU_COUNT" -gt 1 ]; then
+    COUNTER_FILE="/tmp/gpu_counter.txt"
+    touch $COUNTER_FILE
+    (
+        flock -x 200
+        COUNT=$(cat $COUNTER_FILE)
+        COUNT=\${COUNT:-0}
+        GPU_INDEX=$((COUNT % GPU_COUNT))
+        echo $((COUNT + 1)) > $COUNTER_FILE
+    ) 200>/tmp/gpu_counter.lock
+fi
+
+ARGS_NVENC=()
+SKIP_NEXT=0
+for arg in "$@"; do
+    if [ "$SKIP_NEXT" = "1" ]; then
+        SKIP_NEXT=0
+        continue
+    fi
+    if [ "$arg" = "libx264" ]; then
+        ARGS_NVENC+=("h264_nvenc")
+        ARGS_NVENC+=("-gpu" "$GPU_INDEX")
+        ARGS_NVENC+=("-preset" "p6")
+        ARGS_NVENC+=("-tune" "hq")
+        ARGS_NVENC+=("-spatial-aq" "1")
+        ARGS_NVENC+=("-temporal-aq" "1")
+    elif [ "$arg" = "-preset" ]; then
+        SKIP_NEXT=1
+    elif [ "$arg" = "-crf" ]; then
+        ARGS_NVENC+=("-cq")
+    else
+        ARGS_NVENC+=("$arg")
+    fi
+done
+
+echo "[Wrapper] Trying NVENC on GPU $GPU_INDEX..." >&2
+\${SYSTEM_FFMPEG_PATH:-ffmpeg} "\${ARGS_NVENC[@]}"
+if [ $? -ne 0 ]; then
+    echo "[Wrapper] NVENC failed. Falling back to CPU ultrafast." >&2
+    ARGS_CPU=()
+    SKIP_NEXT=0
+    for arg in "$@"; do
+        if [ "$SKIP_NEXT" = "1" ]; then
+            SKIP_NEXT=0
+            continue
+        fi
+        if [ "$arg" = "-preset" ]; then
+            ARGS_CPU+=("-preset")
+            ARGS_CPU+=("ultrafast")
+            SKIP_NEXT=1
+        else
+            ARGS_CPU+=("$arg")
+        fi
+    done
+    exec \${SYSTEM_FFMPEG_PATH:-ffmpeg} "\${ARGS_CPU[@]}"
+fi
+`;
+fs.writeFileSync(wrapperPath, wrapperScript);
+fs.chmodSync(wrapperPath, 0o755);
+// --------------------------------------------
+
 // Configure Multer for processing incoming video uploads directly to disk temporary storage
 const uploadDir = path.join(os.tmpdir(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -187,24 +257,26 @@ async function ensureFont(fontName: string): Promise<string | null> {
 const exportJobs = new Map<string, { status: string; progress?: number; downloadUrl?: string; error?: string }>();
 
 const jobQueue: (() => Promise<void>)[] = [];
-let isQueueProcessing = false;
+const MAX_CONCURRENT_JOBS = process.env.MAX_CONCURRENT_JOBS ? parseInt(process.env.MAX_CONCURRENT_JOBS) : 4;
+let activeJobs = 0;
+let globalGpuIndexCounter = 0;
 let globalCachedBundleLocation: string | null = null;
 let globalBundlePromise: Promise<string> | null = null;
 
 async function processQueue() {
-  if (isQueueProcessing) return;
-  isQueueProcessing = true;
-  while (jobQueue.length > 0) {
+  while (jobQueue.length > 0 && activeJobs < MAX_CONCURRENT_JOBS) {
     const job = jobQueue.shift();
     if (job) {
-      try {
-        await job();
-      } catch (err) {
-        console.error("[Queue] Job failed", err);
-      }
+      activeJobs++;
+      // Run the job asynchronously without blocking the loop
+      job()
+        .catch(err => console.error("[Queue] Job failed", err))
+        .finally(() => {
+          activeJobs--;
+          processQueue(); // Prompt the queue to process next item
+        });
     }
   }
-  isQueueProcessing = false;
 }
 
 app.get("/api/health", (_req, res) => res.json({ 
@@ -261,7 +333,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
      return res.status(400).json({ error: "Missing captions data." });
   }
 
-  if (jobQueue.length >= 30) {
+  if (jobQueue.length >= 2000) {
      return res.status(429).json({ error: "Server is currently at maximum capacity. Please try again in a few minutes." });
   }
 
@@ -438,66 +510,12 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             });
 
-            const wrapperPath = path.join(os.tmpdir(), "ffmpeg_nvenc_wrapper.sh");
-            process.env.REMOTION_FFMPEG_EXECUTABLE = wrapperPath;
-            fs.writeFileSync(wrapperPath, `#!/bin/bash
-ARGS_NVENC=()
-SKIP_NEXT=0
-for arg in "$@"; do
-    if [ "$SKIP_NEXT" = "1" ]; then
-        SKIP_NEXT=0
-        continue
-    fi
-    if [ "$arg" = "libx264" ]; then
-        ARGS_NVENC+=("h264_nvenc")
-        ARGS_NVENC+=("-preset" "p6")
-        ARGS_NVENC+=("-tune" "hq")
-        ARGS_NVENC+=("-spatial-aq" "1")
-        ARGS_NVENC+=("-temporal-aq" "1")
-    elif [ "$arg" = "-preset" ]; then
-        SKIP_NEXT=1
-    elif [ "$arg" = "-crf" ]; then
-        ARGS_NVENC+=("-cq")
-    else
-        ARGS_NVENC+=("$arg")
-    fi
-done
-
-echo "[Wrapper] Trying NVENC..." >&2
-\${SYSTEM_FFMPEG_PATH:-ffmpeg} "\${ARGS_NVENC[@]}"
-if [ $? -ne 0 ]; then
-    echo "[Wrapper] NVENC failed. Falling back to CPU ultrafast." >&2
-    ARGS_CPU=()
-    SKIP_NEXT=0
-    for arg in "$@"; do
-        if [ "$SKIP_NEXT" = "1" ]; then
-            SKIP_NEXT=0
-            continue
-        fi
-        if [ "$arg" = "-preset" ]; then
-            ARGS_CPU+=("-preset")
-            ARGS_CPU+=("ultrafast")
-            SKIP_NEXT=1
-        else
-            ARGS_CPU+=("$arg")
-        fi
-    done
-    exec \${SYSTEM_FFMPEG_PATH:-ffmpeg} "\${ARGS_CPU[@]}"
-fi
-`);
-            fs.chmodSync(wrapperPath, 0o755);
-
             const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
              
-            // Determine optimal concurrency for Threadripper 3975WX (32-cores / 64-threads)
-            // Using all 64 threads is possible with 100GB of RAM!
             const cpuCount = os.cpus().length;
-            const optimalConcurrency = cpuCount > 0 ? cpuCount : null;
-            
-            // Render the full composition with the video in the background natively.
-            // Using OffthreadVideo skips all Chromium limitations natively.
-            
-            console.log(`[Export] Starting full Remotion render using NVENC. CPU Cores: ${cpuCount}, Concurrency: ${optimalConcurrency}`);
+            const optimalConcurrency = Math.max(1, Math.floor(cpuCount / MAX_CONCURRENT_JOBS));
+
+            console.log(`[Export] Starting full Remotion render using NVENC. CPU Cores: ${cpuCount}, Max Concurrent Jobs: ${MAX_CONCURRENT_JOBS}, Job Concurrency: ${optimalConcurrency}`);
             await renderMedia({
                 composition,
                 serveUrl,
@@ -581,10 +599,17 @@ fi
                 subtitleFilter = `subtitles='${escapedSrtPath}':fontsdir='${escapedFontsDir}':force_style='${cleanStyle}'`;
             }
 
+            let targetGpuIndex = '0';
+            const gpuCount = process.env.GPU_COUNT ? parseInt(process.env.GPU_COUNT) : 0;
+            if (gpuCount > 1) {
+                targetGpuIndex = String(globalGpuIndexCounter % gpuCount);
+                globalGpuIndexCounter++;
+            }
+
             const args = [
                 '-y', '-i', videoSource,
                 '-vf', `${scaleFilter},${subtitleFilter}`,
-                '-c:v', 'h264_nvenc', '-preset', 'p6', '-tune', 'hq', '-spatial-aq', '1', '-temporal-aq', '1', '-pix_fmt', 'yuv420p', '-b:v', '6M',
+                '-c:v', 'h264_nvenc', '-gpu', targetGpuIndex, '-preset', 'p6', '-tune', 'hq', '-spatial-aq', '1', '-temporal-aq', '1', '-pix_fmt', 'yuv420p', '-b:v', '6M',
                 '-c:a', 'copy', '-movflags', '+faststart', outputPath
             ];
 
@@ -606,7 +631,12 @@ fi
                 });
             } catch (err: any) {
                 console.log("[Export] FFmpeg failed with nvenc, retrying with libx264. Error:", err.message);
-                const fallbackArgs = args.map(arg => arg === 'h264_nvenc' ? 'libx264' : arg);
+                const fallbackArgs = [];
+                for (let i = 0; i < args.length; i++) {
+                    if (args[i] === 'h264_nvenc') fallbackArgs.push('libx264');
+                    else if (args[i] === '-gpu') i++; // Skip -gpu and its value
+                    else fallbackArgs.push(args[i]);
+                }
                 await new Promise<void>((resolve, reject) => {
                     const ffmpegProcess = spawn(validFfmpegPath as string, fallbackArgs);
                     

@@ -4,7 +4,8 @@
   "description": "GPU accelerated video processing backend",
   "main": "server.ts",
   "scripts": {
-    "start": "tsx server.ts"
+    "start": "tsx server.ts",
+    "start:prod": "tsx server.ts"
   },
   "dependencies": {
     "express": "^4.18.2",
