@@ -535,17 +535,26 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                    await renderMedia({
                         composition,
                         serveUrl,
-                        port: renderPort,
+                        // Removed fixed port: renderPort to allow Remotion to pick a free random port for each chunk
                         codec: 'h264',
                         imageFormat: 'jpeg',
-                        jpegQuality: 90,
+                        jpegQuality: 100, // Maximizing quality for parallel chunks
                         muted: true,
                         outputLocation: chunkPath,
                         inputProps: { ...inputProps, styleOptions: styleOptionsParsed },
                         frameRange: [startFrame, endFrame],
                         concurrency: optimalConcurrency,
                         timeoutInMilliseconds: 300000,
-                        chromiumOptions,
+                        chromiumOptions: {
+                            ...chromiumOptions,
+                            args: [
+                                ...chromiumOptions.args,
+                                "--force-color-profile=srgb",
+                                "--font-render-hinting=medium", // Changed from none to medium for better strength/clarity
+                                "--enable-font-antialiasing",
+                                "--smooth-scrolling"
+                            ]
+                        },
                         onBrowserLog: (log) => {
                             if (log.type === 'error' || log.type === 'warning') {
                                 console.log(`[Browser Chunk ${i}] ${log.type}: ${log.text}`);

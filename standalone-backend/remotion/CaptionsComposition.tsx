@@ -45,12 +45,16 @@ export const CaptionsComposition = ({
         }
 
         const fontUrl = `http://127.0.0.1:${expressPort || 3005}/fonts/${encodeURIComponent(baseFont + '_v2.ttf')}`;
-        const font = new FontFace(baseFont, `url(${fontUrl})`, {
-            weight: styleOptions.fontWeight || 'normal'
-        });
+        // Register the font for ALL possible weights so that browser doesn't try to synthesize a fake one if the app requests bold
+        const weights = ['normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900'];
         
-        font.load().then(() => {
-            document.fonts.add(font);
+        Promise.all(weights.map(weight => {
+            const font = new FontFace(baseFont, `url(${fontUrl})`, { weight });
+            return font.load().then(f => {
+                document.fonts.add(f);
+                return f;
+            });
+        })).then(() => {
             setFontLoaded(true);
             continueRender(handle);
         }).catch((err) => {
@@ -143,6 +147,14 @@ export const CaptionsComposition = ({
 
     return (
         <AbsoluteFill style={{ backgroundColor: styleOptions?.captionsOnly ? 'transparent' : 'black' }}>
+            <style>{`
+                * {
+                    -webkit-font-smoothing: antialiased;
+                    -moz-osx-font-smoothing: grayscale;
+                    text-rendering: optimizeLegibility;
+                    font-smooth: always;
+                }
+            `}</style>
             {!styleOptions?.captionsOnly && (
                 <OffthreadVideo 
                     src={videoUrl} 
@@ -189,6 +201,9 @@ export const CaptionsComposition = ({
                             paintOrder: 'stroke fill',
                             textShadow: textShadowValue,
                             direction: 'rtl', // specific to Arabic
+                            textRendering: 'optimizeLegibility',
+                            WebkitFontSmoothing: 'antialiased',
+                            MozOsxFontSmoothing: 'grayscale',
                             transform: `translate(${posX}px, calc(${posY}px + ${blockTranslateY}px)) scale(${blockScale})`
                         }}
                         dir="rtl"
@@ -206,7 +221,7 @@ export const CaptionsComposition = ({
                                 gap: '1.5625em 0.625em'
                             }}
                         >
-                            {activeCaption.text.split(' ').map((word: string, i: number, arr: string[]) => {
+                             {activeCaption.text.split(' ').map((word: string, i: number, arr: string[]) => {
                                 const isWordAnim = styleOptions?.animationMode === 'word' || styleOptions?.animationMode === 'highlight';
                                 const duration = activeCaption.end - activeCaption.start;
                                 const scaledDuration = duration / (styleOptions?.wordSpeedMultiplier ?? 1);
@@ -220,8 +235,11 @@ export const CaptionsComposition = ({
                                 
                                 const wordHighlightColor = styleOptions?.wordHighlightColor ?? '#3e81f6';
 
+                                // Optimization: Only apply heavy transforms during active range
+                                const isActive = frame >= wordStartFrame - 5 && frame <= wordEndFrame + 5;
+
                                 let wordScale = 1;
-                                if (isWordAnim) {
+                                if (isWordAnim && isActive) {
                                     if (frame >= wordStartFrame && frame < wordEndFrame) {
                                         wordScale = interpolate(
                                             frame - wordStartFrame,
@@ -246,8 +264,9 @@ export const CaptionsComposition = ({
                                             display: 'inline-block',
                                             fontWeight: styleOptions?.fontWeight || 'normal',
                                             color: isHighlighted ? wordHighlightColor : undefined,
-                                            transform: `scale(${wordScale})`,
-                                            transformOrigin: 'center'
+                                            transform: wordScale !== 1 ? `scale(${wordScale})` : 'none',
+                                            transformOrigin: 'center',
+                                            WebkitFontSmoothing: 'antialiased'
                                         }}
                                     >
                                         {word}
