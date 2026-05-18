@@ -261,8 +261,38 @@ async function ensureFont(fontName: string): Promise<string | null> {
 const exportJobs = new Map<string, { status: string; progress?: number; downloadUrl?: string; error?: string }>();
 
 const jobQueue: (() => Promise<void>)[] = [];
-const MAX_CONCURRENT_JOBS = process.env.MAX_CONCURRENT_JOBS ? parseInt(process.env.MAX_CONCURRENT_JOBS) : 4;
+const MAX_CONCURRENT_JOBS = process.env.MAX_CONCURRENT_JOBS ? parseInt(process.env.MAX_CONCURRENT_JOBS) : 2;
 let activeJobs = 0;
+
+// Periodic cleanup for the entire temp directory every 15 mins
+setInterval(() => {
+  const tempDir = os.tmpdir();
+  fs.readdir(tempDir, (err, files) => {
+    if (err) return;
+    const now = Date.now();
+    files.forEach(file => {
+      const filePath = path.join(tempDir, file);
+      try {
+        const stats = fs.statSync(filePath);
+        // Delete files older than 10 minutes
+        if (now - stats.mtimeMs > 10 * 60 * 1000) {
+          if (stats.isDirectory()) {
+             // Only delete our specific temp dirs if we want to be safe, but here we can be a bit more aggressive
+             if (file.startsWith('remotion-')) {
+                fs.rmSync(filePath, { recursive: true, force: true });
+             }
+          } else {
+             // Delete out_*.mp4, subs_*.srt, etc.
+             if (file.startsWith('out_') || file.startsWith('subs_') || file.startsWith('dl_') || file.startsWith('concat_')) {
+                fs.unlinkSync(filePath);
+             }
+          }
+        }
+      } catch (e) {}
+    });
+  });
+}, 15 * 60 * 1000);
+
 let globalGpuIndexCounter = 0;
 let globalCachedBundleLocation: string | null = null;
 let globalBundlePromise: Promise<string> | null = null;
@@ -341,7 +371,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
      return res.status(429).json({ error: "Server is currently at maximum capacity. Please try again in a few minutes." });
   }
 
-  const sessionId = `${uuidv4().substring(0, 8)}_${Date.now()}`;
+  const sessionId = `${uuidv4().substring(0, 8)}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
   let videoSource = uploadedFilePath || videoUrl;
   
   exportJobs.set(sessionId, { status: 'pending' });
@@ -493,7 +523,11 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                     "--ignore-ssl-errors",
                     "--ignore-certificate-errors-spki-list",
                     "--disable-features=IsolateOrigins,site-per-process",
-                    "--disable-site-isolation-trials"
+                    "--disable-site-isolation-trials",
+                    "--disable-local-storage",
+                    "--disable-session-storage",
+                    "--disable-gpu-shader-disk-cache",
+                    "--disk-cache-size=1"
                 ]
             };
 
@@ -514,15 +548,10 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             });
 
-            const cpuCount = os.cpus().length; // This is 64 on the new machine
-            const numChunks = durationInFrames > 900 ? 8 : (durationInFrames > 300 ? 4 : 1); 
-            // On a 64 core machine, we want to maximize usage. 
-            // If MAX_CONCURRENT_JOBS is 16, we still have 4 cores per job.
-            // If activeJobs is only 1, we should use much more.
-            // We use a more aggressive concurrency model.
-            const totalReservedCores = MAX_CONCURRENT_JOBS * 2; // Reserve at least 2 cores per job slot
+            const cpuCount = os.cpus().length; // 64 cores
+            const numChunks = durationInFrames > 600 ? 4 : (durationInFrames > 200 ? 2 : 1); 
             const coresPerJob = Math.floor(cpuCount / Math.max(1, activeJobs));
-            const optimalConcurrency = Math.max(2, Math.floor(coresPerJob / numChunks));
+            const optimalConcurrency = Math.min(8, Math.max(1, Math.floor(coresPerJob / numChunks)));
 
             console.log(`[Export] Starting parallel render. CPU Cores: ${cpuCount}, Active Jobs: ${activeJobs}, Chunks: ${numChunks}, Concurrency per chunk: ${optimalConcurrency}`);
             

@@ -204,8 +204,12 @@ export const CaptionsComposition = ({
                                     const weightNum = parseInt(weight);
                                     const isBold = weight === 'bold' || weight === 'black' || weightNum >= 700;
                                     if (isBold) {
-                                        // Subtle thickness boost for better "strength"
-                                        return `${Math.max(0.3, scaledFontSize * 0.005)}px currentColor`;
+                                        // If it's Janna LT, we need extra help since we don't have the bold file
+                                        const isJanna = (styleOptions?.fontFamily || '').toLowerCase().includes('janna');
+                                        const strokeWidth = isJanna 
+                                            ? Math.max(0.7, scaledFontSize * 0.015) // Thicker stroke for Janna LT Bold simulation
+                                            : Math.max(0.3, scaledFontSize * 0.005);
+                                        return `${strokeWidth}px currentColor`;
                                     }
                                     return 'none';
                                 })(),
