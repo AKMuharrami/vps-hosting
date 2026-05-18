@@ -514,33 +514,71 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             });
 
-            const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
-             
             const cpuCount = os.cpus().length;
-            const optimalConcurrency = Math.max(1, Math.floor(cpuCount / MAX_CONCURRENT_JOBS));
+            const numChunks = durationInFrames > 900 ? 8 : (durationInFrames > 300 ? 4 : 1); 
+            const optimalConcurrency = Math.max(1, Math.floor(cpuCount / (MAX_CONCURRENT_JOBS * numChunks)));
 
-            console.log(`[Export] Starting full Remotion render using NVENC. CPU Cores: ${cpuCount}, Max Concurrent Jobs: ${MAX_CONCURRENT_JOBS}, Job Concurrency: ${optimalConcurrency}`);
-            await renderMedia({
-                composition,
-                serveUrl,
-                port: renderPort,
-                codec: 'h264',
-                imageFormat: 'jpeg',
-                jpegQuality: 90,
-                muted: true, // Huge performance optimization: Remotion only encodes video, we copy audio next natively
-                outputLocation: tempVideoPath,
-                inputProps: { ...inputProps, styleOptions: styleOptionsParsed },
-                concurrency: optimalConcurrency, // Force maximum concurrency
-                timeoutInMilliseconds: 240000,
-                chromiumOptions,
-                onBrowserLog: (log) => {
-                    if (log.type === 'error' || log.type === 'warning') {
-                        console.log(`[Browser] ${log.type}: ${log.text}`);
-                    }
-                }
+            console.log(`[Export] Starting parallel render. Chunks: ${numChunks}, Concurrency per chunk: ${optimalConcurrency}`);
+            
+            const chunkPaths: string[] = [];
+            const renderPromises: Promise<void>[] = [];
+
+            for (let i = 0; i < numChunks; i++) {
+                const startFrame = Math.floor((durationInFrames / numChunks) * i);
+                const endFrame = i === numChunks - 1 ? durationInFrames - 1 : Math.floor((durationInFrames / numChunks) * (i + 1)) - 1;
+                const chunkPath = outputPath.replace('.mp4', `_chunk_${i}.mp4`);
+                chunkPaths.push(chunkPath);
+
+                renderPromises.push((async () => {
+                   const { renderMedia } = await import('@remotion/renderer');
+                   console.log(`[Export] Rendering chunk ${i}: frames ${startFrame}-${endFrame}`);
+                   await renderMedia({
+                        composition,
+                        serveUrl,
+                        port: renderPort,
+                        codec: 'h264',
+                        imageFormat: 'jpeg',
+                        jpegQuality: 90,
+                        muted: true,
+                        outputLocation: chunkPath,
+                        inputProps: { ...inputProps, styleOptions: styleOptionsParsed },
+                        frameRange: [startFrame, endFrame],
+                        concurrency: optimalConcurrency,
+                        timeoutInMilliseconds: 300000,
+                        chromiumOptions,
+                        onBrowserLog: (log) => {
+                            if (log.type === 'error' || log.type === 'warning') {
+                                console.log(`[Browser Chunk ${i}] ${log.type}: ${log.text}`);
+                            }
+                        }
+                    });
+                })());
+            }
+
+            await Promise.all(renderPromises);
+            console.log("[Export] All chunks rendered. Concatenating...");
+
+            const tempVideoPath = outputPath.replace('.mp4', '_temp.mp4');
+            
+            // Create concat list for FFmpeg
+            const concatListPath = path.join(os.tmpdir(), `concat_${sessionId}.txt`);
+            const concatContent = chunkPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+            fs.writeFileSync(concatListPath, concatContent);
+
+            await new Promise((resolve, reject) => {
+                const ffmpegProcess = spawn(validFfmpegPath as string, [
+                    '-y', '-f', 'concat', '-safe', '0', '-i', concatListPath, '-c', 'copy', tempVideoPath
+                ]);
+                ffmpegProcess.on('close', (code) => {
+                    fs.unlinkSync(concatListPath);
+                    chunkPaths.forEach(p => { try { fs.unlinkSync(p); } catch(e) {} });
+                    if (code === 0) resolve(null);
+                    else reject(new Error(`Concat failed with code ${code}`));
+                });
+                ffmpegProcess.on('error', reject);
             });
                 
-            console.log("[Export] Remotion rendering success. Muxing original audio with ffmpeg natively...");
+            console.log("[Export] Chunk concatenation success. Muxing original audio...");
                 
             await new Promise((resolve, reject) => {
                 const ffmpegProcess = spawn(validFfmpegPath as string, [
