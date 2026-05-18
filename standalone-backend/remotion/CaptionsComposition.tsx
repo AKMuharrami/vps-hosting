@@ -45,16 +45,18 @@ export const CaptionsComposition = ({
         }
 
         const fontUrl = `http://127.0.0.1:${expressPort || 3005}/fonts/${encodeURIComponent(baseFont + '_v2.ttf')}`;
-        // Register the font for ALL possible weights so that browser doesn't try to synthesize a fake one if the app requests bold
-        const weights = ['normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900'];
+        
+        // Fix: Register weights up to 900. If we use the same file, the browser 
+        // will use synthetic bolding for weights it thinks are too light relative 
+        // to requested weight, but registering them explicitly helps with some 
+        // CSS engine edge cases in Chromium.
+        const weights = ['normal', '400', '700', '800', '900']; 
         
         Promise.all(weights.map(weight => {
             const font = new FontFace(baseFont, `url(${fontUrl})`, { weight });
-            return font.load().then(f => {
-                document.fonts.add(f);
-                return f;
-            });
-        })).then(() => {
+            return font.load().then(f => f);
+        })).then((loadedFonts) => {
+            loadedFonts.forEach(f => document.fonts.add(f));
             setFontLoaded(true);
             continueRender(handle);
         }).catch((err) => {
@@ -151,7 +153,7 @@ export const CaptionsComposition = ({
                 * {
                     -webkit-font-smoothing: antialiased;
                     -moz-osx-font-smoothing: grayscale;
-                    text-rendering: optimizeLegibility;
+                    text-rendering: geometricPrecision;
                     font-smooth: always;
                 }
             `}</style>
@@ -194,16 +196,23 @@ export const CaptionsComposition = ({
                             whiteSpace: 'pre-wrap',
                             borderColor: styleOptions?.hasBackground ? 'rgba(255,255,255,0.1)' : 'transparent',
                             lineHeight: '1.2',
-                            fontWeight: styleOptions?.fontWeight,
+                            fontWeight: styleOptions?.fontWeight || 'bold',
                             WebkitTextStroke: styleOptions?.hasStroke 
                                 ? `${scaledStroke}px ${styleOptions?.strokeColor}` 
-                                : 'none',
+                                : (() => {
+                                    const weight = styleOptions?.fontWeight;
+                                    const weightNum = parseInt(weight);
+                                    const isBold = weight === 'bold' || weight === 'black' || weightNum >= 700;
+                                    if (isBold) {
+                                        // Subtle thickness boost for better "strength"
+                                        return `${Math.max(0.3, scaledFontSize * 0.005)}px currentColor`;
+                                    }
+                                    return 'none';
+                                })(),
                             paintOrder: 'stroke fill',
                             textShadow: textShadowValue,
                             direction: 'rtl', // specific to Arabic
                             textRendering: 'optimizeLegibility',
-                            WebkitFontSmoothing: 'antialiased',
-                            MozOsxFontSmoothing: 'grayscale',
                             transform: `translate(${posX}px, calc(${posY}px + ${blockTranslateY}px)) scale(${blockScale})`
                         }}
                         dir="rtl"

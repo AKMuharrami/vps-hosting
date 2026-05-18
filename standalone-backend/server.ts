@@ -341,7 +341,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
      return res.status(429).json({ error: "Server is currently at maximum capacity. Please try again in a few minutes." });
   }
 
-  const sessionId = uuidv4().substring(0, 8);
+  const sessionId = `${uuidv4().substring(0, 8)}_${Date.now()}`;
   let videoSource = uploadedFilePath || videoUrl;
   
   exportJobs.set(sessionId, { status: 'pending' });
@@ -502,7 +502,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
 
             const composition = await selectComposition({
                 serveUrl,
-                port: renderPort,
+                // port: renderPort, // Let Remotion pick a free port automatically to avoid collisions
                 id: 'Captions',
                 inputProps,
                 chromiumOptions,
@@ -514,11 +514,17 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                 }
             });
 
-            const cpuCount = os.cpus().length;
+            const cpuCount = os.cpus().length; // This is 64 on the new machine
             const numChunks = durationInFrames > 900 ? 8 : (durationInFrames > 300 ? 4 : 1); 
-            const optimalConcurrency = Math.max(1, Math.floor(cpuCount / (MAX_CONCURRENT_JOBS * numChunks)));
+            // On a 64 core machine, we want to maximize usage. 
+            // If MAX_CONCURRENT_JOBS is 16, we still have 4 cores per job.
+            // If activeJobs is only 1, we should use much more.
+            // We use a more aggressive concurrency model.
+            const totalReservedCores = MAX_CONCURRENT_JOBS * 2; // Reserve at least 2 cores per job slot
+            const coresPerJob = Math.floor(cpuCount / Math.max(1, activeJobs));
+            const optimalConcurrency = Math.max(2, Math.floor(coresPerJob / numChunks));
 
-            console.log(`[Export] Starting parallel render. Chunks: ${numChunks}, Concurrency per chunk: ${optimalConcurrency}`);
+            console.log(`[Export] Starting parallel render. CPU Cores: ${cpuCount}, Active Jobs: ${activeJobs}, Chunks: ${numChunks}, Concurrency per chunk: ${optimalConcurrency}`);
             
             const chunkPaths: string[] = [];
             const renderPromises: Promise<void>[] = [];
@@ -535,7 +541,7 @@ app.post("/api/export-video", upload.single('videoFile'), async (req: any, res: 
                    await renderMedia({
                         composition,
                         serveUrl,
-                        // Removed fixed port: renderPort to allow Remotion to pick a free random port for each chunk
+                        // port: chunkRenderPort, // Let Remotion pick a free port automatically 
                         codec: 'h264',
                         imageFormat: 'jpeg',
                         jpegQuality: 100, // Maximizing quality for parallel chunks
