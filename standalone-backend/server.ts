@@ -27,6 +27,10 @@ const app = express();
 const EXPRESS_PORT = process.env.PORT || "3005";
 
 console.log(`[Init] Starting backend on port: ${EXPRESS_PORT}`);
+console.log(`[System] CPU Cores: ${os.cpus().length}`);
+console.log(`[System] Total Memory: ${(os.totalmem() / (1024 * 1024 * 1024)).toFixed(2)} GB`);
+console.log(`[Hardware] GPU Count Mode: ${process.env.GPU_COUNT || 1}`);
+console.log(`[Hardware] Max Concurrent Jobs: ${process.env.MAX_CONCURRENT_JOBS || 4}`);
 if (EXPRESS_PORT === "3000") {
   console.warn("[Init] WARNING: Running on port 3000 might conflict with Remotion's internal browser server.");
 }
